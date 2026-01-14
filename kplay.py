@@ -7,7 +7,7 @@ from datetime import datetime
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-TOKEN = "8536913712:AAHh-kgezThCdjQyyA7viMwOn7Q0rFVmcZQ"
+TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = 5338814259
 
 BALANCE_FILE = "balances.txt"
