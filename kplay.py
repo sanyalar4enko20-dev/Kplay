@@ -201,6 +201,11 @@ async def miner_click(call: types.CallbackQuery):
         return
 
     idx = int(action)
+    
+    # защита от двойного клика
+    if idx in game["open"]:
+        return
+    
     if idx in game["mines"]:
         del miners[owner]
         await call.message.edit_text("💥 БАХ!")
@@ -233,27 +238,42 @@ async def give(msg: types.Message):
     if msg.from_user.id != OWNER_ID:
         return
 
-    parts = msg.text.split()
+    parts = msg.text.lower().split()
 
-    if len(parts) == 3 and parts[2].lower() == "всем":
+    # ---------- выдать 1000 всем ----------
+    if len(parts) == 3 and parts[2] == "всем":
         amount = int(parts[1])
+        count = 0
+
         for uid in get_all_users():
-            add_balance(uid, amount)
-        await msg.reply(f"🛡 Админ KPlay выдал всем юзерам бота {amount} {CURRENCY}")
+            if uid != msg.from_user.id:
+                add_balance(uid, amount)
+                count += 1
+
+        await msg.reply(
+            f"🛡 Админ KPlay выдал всем юзерам бота {amount} {CURRENCY}\n"
+            f"👥 Получили: {count}"
+        )
         return
 
+    # ---------- ответом ----------
     if msg.reply_to_message and len(parts) == 2:
         amount = int(parts[1])
         user = msg.reply_to_message.from_user
         add_balance(user.id, amount)
-        await msg.reply(f"🛡 Админ KPlay выдал {amount} {CURRENCY} {user_label(user)}")
+        await msg.reply(
+            f"🛡 Админ KPlay выдал {amount} {CURRENCY} {user_label(user)}"
+        )
         return
 
-    if len(parts) == 3:
+    # ---------- выдать 1000 id ----------
+    if len(parts) == 3 and parts[2].isdigit():
         amount = int(parts[1])
         uid = int(parts[2])
         add_balance(uid, amount)
-        await msg.reply(f"🛡 Админ KPlay выдал {amount} {CURRENCY} {uid}")
+        await msg.reply(
+            f"🛡 Админ KPlay выдал {amount} {CURRENCY} {uid}"
+        )
 
 @dp.message(lambda m: m.text and m.text.lower().startswith("снять"))
 async def take(msg: types.Message):
@@ -300,6 +320,40 @@ async def start(msg: types.Message):
         "Канал @kplaynews",
         reply_markup=kb.as_markup(),
         parse_mode="Markdown"
+    )
+
+# ---------- ПЕРЕДАЧА (п 100) ----------
+
+@dp.message(lambda m: m.text and re.fullmatch(r"п\s+\d+", m.text.lower()))
+async def transfer(msg: types.Message):
+    add_user(msg.from_user.id)
+
+    if not msg.reply_to_message:
+        await msg.reply("❌ Используй команду ответом на сообщение")
+        return
+
+    sender = msg.from_user
+    receiver = msg.reply_to_message.from_user
+
+    if sender.id == receiver.id:
+        await msg.reply("❌ Нельзя передать самому себе")
+        return
+
+    amount = int(msg.text.split()[1])
+
+    if amount <= 0:
+        await msg.reply("❌ Сумма должна быть больше 0")
+        return
+
+    if get_balance(sender.id) < amount:
+        await msg.reply("❌ Недостаточно средств")
+        return
+
+    add_balance(sender.id, -amount)
+    add_balance(receiver.id, amount)
+
+    await msg.reply(
+        f"💸 {user_label(sender)} передал {amount} {CURRENCY} {user_label(receiver)}"
     )
 
 # ---------- ЗАПУСК ----------
