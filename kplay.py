@@ -6,8 +6,10 @@ from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.context import FSMContext
 
-TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = "8536913712:AAHh-kgezThCdjQyyA7viMwOn7Q0rFVmcZQ"
 OWNER_ID = 5338814259
 
 BALANCE_FILE = "balances.txt"
@@ -89,6 +91,20 @@ def add_balance(uid, amount):
 async def balance(msg: types.Message):
     add_user(msg.from_user.id)
     await msg.reply(f"💰 Баланс: {get_balance(msg.from_user.id)} {CURRENCY}")
+
+@dp.message(lambda m: m.reply_to_message and m.text.lower() in ["б", "баланс"])
+async def owner_check_balance_reply(msg: types.Message):
+    if msg.from_user.id != OWNER_ID:
+        return
+
+    user = msg.reply_to_message.from_user
+    bal = get_balance(user.id)
+    name = f"@{user.username}" if user.username else "без юза"
+
+    await msg.reply(
+        f"👤 {name} | {user.id}\n"
+        f"💰 {bal} {CURRENCY}"
+    )
 
 # ---------- БОНУС ----------
 
@@ -355,6 +371,222 @@ async def transfer(msg: types.Message):
     await msg.reply(
         f"💸 {user_label(sender)} передал {amount} {CURRENCY} {user_label(receiver)}"
     )
+    
+# ================== ADMIN PANEL FULL ==================
+
+ADMIN_LOGIN_CMD = "adminkentkplaytokenpydroid"
+ADMIN_PASSWORD = "63580"
+
+BANS_USERS_FILE = "bans_users.txt"
+BANS_GROUPS_FILE = "bans_groups.txt"
+CHATS_FILE = "chats.txt"
+
+for f in [BANS_USERS_FILE, BANS_GROUPS_FILE, CHATS_FILE]:
+    if not os.path.exists(f):
+        open(f, "w").close()
+
+admin_state = {}  # uid: {"step": str, "target": int}
+
+# ---------- ВСПОМОГАТЕЛЬНЫЕ ----------
+
+def back_kb():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="← Назад", callback_data="adm_back")
+    return kb.as_markup()
+
+def main_kb():
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🚫 Баны", callback_data="adm_bans")
+    kb.button(text="💸 Выдать", callback_data="adm_give")
+    kb.button(text="➖ Снять", callback_data="adm_take")
+    kb.button(text="💰 Балансы", callback_data="adm_bal")
+    kb.button(text="💬 Чаты", callback_data="adm_chats")
+    kb.adjust(2)
+    return kb.as_markup()
+
+# ---------- ВХОД ----------
+
+@dp.message(lambda m: m.text == ADMIN_LOGIN_CMD)
+async def admin_login(msg: types.Message):
+    if msg.from_user.id != OWNER_ID:
+        return
+    admin_state[msg.from_user.id] = {"step": "password"}
+    await msg.reply("🔐 пароль?")
+
+@dp.message(lambda m: m.from_user.id in admin_state and admin_state[m.from_user.id]["step"] == "password")
+async def admin_password(msg: types.Message):
+    if msg.text != ADMIN_PASSWORD:
+        await msg.reply("❌ неверный пароль")
+        return
+    admin_state[msg.from_user.id]["step"] = None
+    await msg.reply("🛡 Админ-панель", reply_markup=main_kb())
+
+# ---------- НАЗАД ----------
+
+@dp.callback_query(lambda c: c.data == "adm_back")
+async def adm_back(call: types.CallbackQuery):
+    await call.message.edit_text("🛡 Админ-панель", reply_markup=main_kb())
+
+# ---------- ВЫДАТЬ ----------
+
+@dp.callback_query(lambda c: c.data == "adm_give")
+async def adm_give(call: types.CallbackQuery):
+    admin_state[call.from_user.id] = {"step": "give_id"}
+    await call.message.edit_text("🆔 Айди?", reply_markup=back_kb())
+
+@dp.message(lambda m: admin_state.get(m.from_user.id, {}).get("step") == "give_id")
+async def give_id(msg: types.Message):
+    if not msg.text.isdigit():
+        return await msg.reply("❌ нужен айди")
+    admin_state[msg.from_user.id] = {"step": "give_sum", "target": int(msg.text)}
+    await msg.reply("💰 Сумма?")
+
+@dp.message(lambda m: admin_state.get(m.from_user.id, {}).get("step") == "give_sum")
+async def give_sum(msg: types.Message):
+    if not msg.text.isdigit():
+        return await msg.reply("❌ число")
+    uid = admin_state[msg.from_user.id]["target"]
+    add_balance(uid, int(msg.text))
+    admin_state[msg.from_user.id] = {}
+    await msg.reply("✅ Успешно", reply_markup=main_kb())
+
+# ---------- СНЯТЬ ----------
+
+@dp.callback_query(lambda c: c.data == "adm_take")
+async def adm_take(call: types.CallbackQuery):
+    admin_state[call.from_user.id] = {"step": "take_id"}
+    await call.message.edit_text("🆔 Айди?", reply_markup=back_kb())
+
+@dp.message(lambda m: admin_state.get(m.from_user.id, {}).get("step") == "take_id")
+async def take_id(msg: types.Message):
+    if not msg.text.isdigit():
+        return
+    admin_state[msg.from_user.id] = {"step": "take_sum", "target": int(msg.text)}
+    await msg.reply("💰 Сумма?")
+
+@dp.message(lambda m: admin_state.get(m.from_user.id, {}).get("step") == "take_sum")
+async def take_sum(msg: types.Message):
+    if not msg.text.isdigit():
+        return
+    uid = admin_state[msg.from_user.id]["target"]
+    add_balance(uid, -int(msg.text))
+    admin_state[msg.from_user.id] = {}
+    await msg.reply("✅ Успешно", reply_markup=main_kb())
+
+# ---------- БАЛАНСЫ ----------
+
+@dp.callback_query(lambda c: c.data == "adm_bal")
+async def adm_bal(call: types.CallbackQuery):
+    if call.from_user.id != OWNER_ID:
+        return
+
+    kb = InlineKeyboardBuilder()
+    kb.button(text="🔍 Проверить баланс", callback_data="bal_check_id")
+    kb.button(text="🏆 Топ балансов", callback_data="bal_top")
+    kb.button(text="← Назад", callback_data="adm_back")
+    kb.adjust(1)
+
+    await call.message.edit_text("💰 Балансы", reply_markup=kb.as_markup())
+
+
+@dp.callback_query(lambda c: c.data == "bal_check_id")
+async def bal_check_id(call: types.CallbackQuery):
+    if call.from_user.id != OWNER_ID:
+        return
+
+    admin_state[call.from_user.id] = {"step": "bal_id"}
+    await call.message.edit_text("🆔 Айди пользователя?", reply_markup=back_kb())
+
+
+@dp.message(lambda m: admin_state.get(m.from_user.id, {}).get("step") == "bal_id")
+async def bal_id_process(msg: types.Message):
+    if msg.from_user.id != OWNER_ID:
+        return
+
+    if not msg.text.isdigit():
+        await msg.reply("❌ нужен айди")
+        return
+
+    uid = int(msg.text)
+    bal = get_balance(uid)
+
+    try:
+        user = await bot.get_chat(uid)
+        name = f"@{user.username}" if user.username else "без юза"
+    except:
+        name = "не найден"
+
+    admin_state[msg.from_user.id] = {}
+
+    await msg.reply(
+        f"👤 {name} | {uid}\n💰 {bal} {CURRENCY}",
+        reply_markup=main_kb()
+    )
+
+@dp.callback_query(lambda c: c.data == "bal_top")
+async def bal_top(call: types.CallbackQuery):
+    if call.from_user.id != OWNER_ID:
+        return
+
+    sorted_bal = sorted(
+        [(uid, bal) for uid, bal in balances.items() if uid != OWNER_ID],
+        key=lambda x: x[1],
+        reverse=True
+    )[:10]
+
+    if not sorted_bal:
+        text = "🏆 Топ пуст"
+    else:
+        text = "🏆 Топ балансов:\n\n"
+        for i, (uid, bal) in enumerate(sorted_bal, 1):
+            text += f"{i}. {uid} — {bal} {CURRENCY}\n"
+
+    await call.message.edit_text(text, reply_markup=back_kb())
+
+# ---------- БАНЫ ----------
+
+@dp.callback_query(lambda c: c.data == "adm_bans")
+async def adm_bans(call: types.CallbackQuery):
+    kb = InlineKeyboardBuilder()
+    kb.button(text="👤 Забанить юзера", callback_data="ban_user")
+    kb.button(text="💬 Забанить чат", callback_data="ban_chat")
+    kb.button(text="📄 Банлист", callback_data="ban_list")
+    kb.button(text="← Назад", callback_data="adm_back")
+    kb.adjust(1)
+    await call.message.edit_text("🚫 Баны", reply_markup=kb.as_markup())
+
+@dp.callback_query(lambda c: c.data == "ban_list")
+async def ban_list(call: types.CallbackQuery):
+    kb = InlineKeyboardBuilder()
+    kb.button(text="👤 Люди", callback_data="ban_users_list")
+    kb.button(text="💬 Группы", callback_data="ban_groups_list")
+    kb.button(text="← Назад", callback_data="adm_bans")
+    kb.adjust(1)
+    await call.message.edit_text("📄 Банлист", reply_markup=kb.as_markup())
+
+@dp.callback_query(lambda c: c.data == "ban_users_list")
+async def ban_users_list(call):
+    with open(BANS_USERS_FILE) as f:
+        data = f.read().strip()
+    text = "👤 Банлист юзеров:\n" + (data or "пусто")
+    await call.message.edit_text(text, reply_markup=back_kb())
+
+@dp.callback_query(lambda c: c.data == "ban_groups_list")
+async def ban_groups_list(call):
+    with open(BANS_GROUPS_FILE) as f:
+        data = f.read().strip()
+    text = "💬 Банлист групп:\n" + (data or "пусто")
+    await call.message.edit_text(text, reply_markup=back_kb())
+
+# ---------- ЧАТЫ ----------
+
+@dp.callback_query(lambda c: c.data == "adm_chats")
+async def adm_chats(call):
+    if call.from_user.id != OWNER_ID:
+        return
+    with open(CHATS_FILE) as f:
+        chats = f.read().strip()
+    await call.message.edit_text("💬 Чаты:\n" + (chats or "пусто"), reply_markup=back_kb())
 
 # ---------- ЗАПУСК ----------
 
@@ -382,4 +614,4 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+ asyncio.run(main())
