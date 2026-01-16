@@ -340,7 +340,7 @@ async def start(msg: types.Message):
 
 # ---------- ПЕРЕДАЧА (п 100) ----------
 
-@dp.message(lambda m: m.text and re.fullmatch(r"п\s+\d+", m.text.lower()))
+@dp.message(lambda m: m.text and re.fullmatch(r"передать\s+\d+", m.text.lower()))
 async def transfer(msg: types.Message):
     add_user(msg.from_user.id)
 
