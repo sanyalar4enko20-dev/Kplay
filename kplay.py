@@ -539,10 +539,6 @@ async def ban_list(call: types.CallbackQuery):
 
 # ---------- ЗАПУСК ----------
 
-async def main():
-    log("Bot started")
-    await dp.start_polling(bot)
-
 from aiohttp import web
 import asyncio
 
