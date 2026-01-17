@@ -1,4 +1,5 @@
 import asyncio
+import sqlite3
 import random
 import os
 import re
@@ -12,7 +13,6 @@ from aiogram.fsm.context import FSMContext
 TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = 5338814259
 
-BALANCE_FILE = "balances.txt"
 LOG_FILE = "logs.txt"
 USERS_FILE = "users.txt"
 
@@ -24,7 +24,6 @@ bonus_cd = {}
 bot = Bot(TOKEN)
 dp = Dispatcher()
 
-balances = {}
 miners = {}
 
 # ---------- ЛОГ ----------
@@ -57,55 +56,21 @@ def get_all_users():
 
 # ---------- БАЛАНС ----------
 
-def load_balances():
-    data = {}
-    if not os.path.exists(BALANCE_FILE):
-        return data
+def get_balance(uid: int) -> int:
+    cur.execute("SELECT balance FROM balances WHERE user_id=?", (uid,))
+    row = cur.fetchone()
+    return row[0] if row else 0
 
-    with open(BALANCE_FILE, "r", encoding="utf-8") as f:
-        for line in f:
-            if ":" not in line:
-                continue
-            uid, bal = line.strip().split(":", 1)
-            if uid.isdigit() and bal.lstrip("-").isdigit():
-                data[int(uid)] = int(bal)
-    return data
 
-def save_balances():
-    with open(BALANCE_FILE, "w", encoding="utf-8") as f:
-        for uid, bal in balances.items():
-            f.write(f"{uid}:{bal}\n")
-
-balances = load_balances()
-
-def get_balance(uid):
-    return balances.get(uid, 0)
-
-def add_balance(uid, amount):
-    balances[uid] = get_balance(uid) + amount
-    save_balances()
-
-# ---------- БАЛАНС ----------
-
-@dp.message(lambda m: m.text and m.text.lower() in ["б", "баланс"])
-async def balance(msg: types.Message):
-    add_user(msg.from_user.id)
-    await msg.reply(f"💰 Баланс: {get_balance(msg.from_user.id)} {CURRENCY}")
-
-@dp.message(lambda m: m.reply_to_message and m.text.lower() in ["б", "баланс"])
-async def owner_check_balance_reply(msg: types.Message):
-    if msg.from_user.id != OWNER_ID:
-        return
-
-    user = msg.reply_to_message.from_user
-    bal = get_balance(user.id)
-    name = f"@{user.username}" if user.username else "без юза"
-
-    await msg.reply(
-        f"👤 {name} | {user.id}\n"
-        f"💰 {bal} {CURRENCY}"
-    )
-
+def add_balance(uid: int, amount: int):
+    cur.execute("""
+    INSERT INTO balances (user_id, balance)
+    VALUES (?, ?)
+    ON CONFLICT(user_id)
+    DO UPDATE SET balance = balance + ?
+    """, (uid, amount, amount))
+    db.commit()
+    
 # ---------- БОНУС ----------
 
 @dp.message(lambda m: m.text and m.text.lower() == "бонус")
