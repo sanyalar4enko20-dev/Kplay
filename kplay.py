@@ -255,7 +255,7 @@ async def rocket_start(msg: types.Message):
     rockets[uid] = {
         "bet": bet,
         "x": 1.0,
-        "explode": round(random.uniform(1.5, 9.8), 1),
+        "explode": round(random.uniform(1.0, 8.0), 1),
         "active": True
     }
 
