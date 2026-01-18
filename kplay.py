@@ -3,6 +3,26 @@ import sqlite3
 import random
 import os
 import re
+
+db = sqlite3.connect("kplay.db", check_same_thread=False)
+cur = db.cursor()
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS balances (
+    user_id INTEGER PRIMARY KEY,
+    balance INTEGER NOT NULL DEFAULT 0
+)
+""")
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS admin_sessions (
+    user_id INTEGER PRIMARY KEY,
+    active INTEGER DEFAULT 0
+)
+""")
+
+db.commit()
+
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types
@@ -25,6 +45,7 @@ bot = Bot(TOKEN)
 dp = Dispatcher()
 
 miners = {}
+rockets = {}
 
 # ---------- ЛОГ ----------
 
@@ -56,11 +77,17 @@ def get_all_users():
 
 # ---------- БАЛАНС ----------
 
+@dp.message(lambda m: m.text and m.text.lower() in ["б", "баланс"])
+async def balance(msg: types.Message):
+    uid = msg.from_user.id
+    add_user(uid)
+    bal = get_balance(uid)
+    await msg.reply(f"💰 Баланс: {bal} {CURRENCY}")
+
 def get_balance(uid: int) -> int:
     cur.execute("SELECT balance FROM balances WHERE user_id=?", (uid,))
-    row = cur.fetchone()
-    return row[0] if row else 0
-
+    r = cur.fetchone()
+    return r[0] if r else 0
 
 def add_balance(uid: int, amount: int):
     cur.execute("""
@@ -207,6 +234,84 @@ async def miner_click(call: types.CallbackQuery):
     await call.message.edit_text(
         f"💣 Сапёр\nМножитель: {game['mult']:.1f}x",
         reply_markup=kb.as_markup()
+    )
+
+#-------------- РАКЕТА -----------------
+
+@dp.message(lambda m: m.text and m.text.lower().startswith("ракета"))
+async def rocket_start(msg: types.Message):
+    parts = msg.text.split()
+    if len(parts) != 2 or not parts[1].isdigit():
+        return await msg.reply("❌ Используй: Ракета 100")
+
+    bet = int(parts[1])
+    uid = msg.from_user.id
+
+    if get_balance(uid) < bet:
+        return await msg.reply("❌ Недостаточно средств")
+
+    add_balance(uid, -bet)
+
+    rockets[uid] = {
+        "bet": bet,
+        "x": 1.0,
+        "explode": round(random.uniform(1.5, 9.8), 1),
+        "active": True
+    }
+
+    kb = InlineKeyboardBuilder()
+    kb.button(text="💰 ЗАБРАТЬ ПРИЗ", callback_data=f"rocket_cash_{uid}")
+
+    msg_rocket = await msg.reply(
+        "🚀 РАКЕТА ПОЛЕТЕЛА 🚀\n\n1.0x",
+        reply_markup=kb.as_markup()
+    )
+
+    asyncio.create_task(rocket_loop(uid, msg_rocket))
+    
+async def rocket_loop(uid, msg):
+    while uid in rockets:
+        await asyncio.sleep(0.2)
+        g = rockets[uid]
+
+        if not g["active"]:
+            return
+
+        g["x"] = round(g["x"] + 0.1, 1)
+
+        if g["x"] >= g["explode"]:
+            del rockets[uid]
+            return await msg.edit_text(
+                f"💥 РАКЕТА ВЗОРВАЛАСЬ НА {g['x']}x\n❌ -ставка"
+            )
+
+        if g["x"] >= 10:
+            win = g["bet"] * 10
+            add_balance(uid, win)
+            del rockets[uid]
+            return await msg.edit_text(f"🏆 +{win} {CURRENCY}")
+
+        await msg.edit_text(
+            f"🚀 РАКЕТА ЛЕТИТ 🚀\n\n{g['x']}x",
+            reply_markup=msg.reply_markup
+        )
+        
+@dp.callback_query(lambda c: c.data.startswith("rocket_cash_"))
+async def rocket_cash(call: types.CallbackQuery):
+    uid = int(call.data.split("_")[-1])
+
+    if call.from_user.id != uid or uid not in rockets:
+        return await call.answer("❌ Не твоя ракета", show_alert=True)
+
+    g = rockets[uid]
+    g["active"] = False
+
+    win = int(g["bet"] * g["x"])
+    add_balance(uid, win)
+    del rockets[uid]
+
+    await call.message.edit_text(
+        f"💰 Забрал на {g['x']}x\n🏆 +{win} {CURRENCY}"
     )
 
 # ---------- ВЫДАТЬ / СНЯТЬ ----------
