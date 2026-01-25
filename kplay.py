@@ -23,7 +23,7 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
-TOKEN = os.getnv("BOT_TOKEN")
+TOKEN = "8536913712:AAHh-kgezThCdjQyyA7viMwOn7Q0rFVmcZQ"
 OWNER_ID = 5338814259
 
 LOG_FILE = "logs.txt"
@@ -39,6 +39,34 @@ dp = Dispatcher()
 
 miners = {}
 card_games = {}
+
+#---------- ШАБЛОН СТАРТА ----------
+
+@dp.message(lambda m: m.text == "/start")
+async def start(msg: types.Message):
+    add_user(msg.from_user.id)
+
+    kb = InlineKeyboardBuilder()
+    kb.button(
+        text="➕ Добавить в чат",
+        url=f"https://t.me/{(await bot.me()).username}?startgroup=true"
+    )
+
+    await msg.answer(
+        "👋 Привет, я Kplay. бот для игр 🎮\n\n"+
+        "👑 Поддержка:\n"+
+        "@qua4t\n\n"+
+        "📜 Команды:\n"+
+        "• Б / баланс — баланс\n"+
+        "• Бонус — бонус (12ч)\n"+
+        "• 100 красное / красное 100\n"+
+        "• 100 черное / черное 100\n"+
+        "• Сапер 100\n"+
+        "• Карты 100\n\n"+
+        "Канал @kplaynews",
+        reply_markup=kb.as_markup(),
+        parse_mode="Markdown"
+    )
 
 # ---------- ЛОГ ----------
 
@@ -112,16 +140,42 @@ async def bonus(msg: types.Message):
     add_balance(uid, 3000)
     await msg.reply(f"🎁 +3000 {CURRENCY}")
 
-# -------------------- 50/50 -----------------------
+# -------------------- 50/50 -------------------------
+@dp.message(
+    lambda m: m.text
+    and len(m.text.split()) == 2
+    and not m.text.lower().startswith((
+        "сапер",
+        "сапёр",
+        "карты",
+        "панель",
+        "админ",
+        "/",
+        "бонус",
+        "баланс",
+        "профиль"
+    ))
+)
+async def universal_bet(msg: types.Message):
+    text = msg.text.lower().replace("ё", "е").split()
 
-@dp.message(lambda m: m.text)
+    bet = None
+    choice = None
+
+    for x in text:
+        if x.isdigit():
+            bet = int(x)
+        else:
+            choice = x
+
+    if bet is None or choice is None:
+        return
 async def universal_bet(msg: types.Message):
     text = msg.text.lower().replace("ё", "е").split()
 
     if len(text) != 2:
         return
 
-    # определяем что есть что
     bet = None
     choice = None
 
@@ -211,7 +265,7 @@ async def miner(msg: types.Message):
     kb = InlineKeyboardBuilder()
     for i in range(25):
         kb.button(text="⬜", callback_data=f"s_{i}_{uid}")
-    kb.button(text="💰 ", callback_data=f"s_cash_{uid}")
+    kb.button(text="💰 Забрать", callback_data=f"s_cash_{uid}")
     kb.adjust(5)
 
     await msg.reply(
@@ -261,8 +315,8 @@ async def miner_click(call: types.CallbackQuery):
             kb.button(text="🟩", callback_data="x")
         else:
             kb.button(text="⬜", callback_data=f"s_{i}_{owner}")
-    kb.button(text="💰 ", callback_data=f"s_cash_{owner}")
-    kb.adjust(5)
+    kb.button(text="💰 Забрать", callback_data=f"s_cash_{owner}")
+    kb.adjust(5, 1)
 
     await call.message.edit_text(
         f"💣 Сапёр\nМножитель: {game['mult']:.1f}x",
@@ -350,7 +404,7 @@ async def card_click(call: types.CallbackQuery):
     game["history"].append(row)
 
     if idx == death:
-        text = "💥 Ты нарвался на 💀\n\n"
+        text = "💥 Проигрыш!\n\n"
         for r in game["history"]:
             text += " ".join(f"[{x}]" for x in r) + "\n"
 
@@ -366,7 +420,7 @@ async def card_click(call: types.CallbackQuery):
         win = int(game["bet"] * game["mult"])
         add_balance(uid, win)
         await call.message.edit_text(
-            f"🏆 Ты прошёл все 5 раундов!\n"
+            f"🏆 5/5\n"
             f"💰 Выигрыш: {win} {CURRENCY}"
         )
         del card_games[uid]
@@ -456,33 +510,6 @@ async def take(msg: types.Message):
         uid = int(parts[2])
         add_balance(uid, -amount)
         await msg.reply(f"🛡 Админ KPlay снял {amount} {CURRENCY} у {uid}")
-
-#---------- ШАБЛОН СТАРТА ----------
-
-@dp.message(lambda m: m.text == "/start")
-async def start(msg: types.Message):
-    add_user(msg.from_user.id)
-
-    kb = InlineKeyboardBuilder()
-    kb.button(
-        text="➕ Добавить в чат",
-        url=f"https://t.me/{(await bot.me()).username}?startgroup=true"
-    )
-
-    await msg.answer(
-        "👋 Привет, я Kplay. бот для игр 🎮\n\n"+
-        "👑 Мои админы:\n"+
-        "https://t.me/kplaybase/28\n\n"+
-        "📜 Команды:\n"+
-        "• Б / баланс — баланс\n"+
-        "• Бонус — бонус (12ч)\n"+
-        "• 100 красное / красное 100\n"+
-        "• 100 черное / черное 100\n"+
-        "• Сапер 100\n\n"+
-        "Канал @kplaynews",
-        reply_markup=kb.as_markup(),
-        parse_mode="Markdown"
-    )
 
 # ---------- ПЕРЕДАЧА (п 100) ----------
 
