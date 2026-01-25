@@ -141,6 +141,7 @@ async def bonus(msg: types.Message):
     await msg.reply(f"🎁 +3000 {CURRENCY}")
 
 # -------------------- 50/50 -------------------------
+
 @dp.message(
     lambda m: m.text
     and len(m.text.split()) == 2
@@ -150,6 +151,8 @@ async def bonus(msg: types.Message):
         "карты",
         "панель",
         "админ",
+        "снять",
+        "выдать",
         "/",
         "бонус",
         "баланс",
@@ -170,25 +173,7 @@ async def universal_bet(msg: types.Message):
 
     if bet is None or choice is None:
         return
-async def universal_bet(msg: types.Message):
-    text = msg.text.lower().replace("ё", "е").split()
 
-    if len(text) != 2:
-        return
-
-    bet = None
-    choice = None
-
-    for x in text:
-        if x.isdigit():
-            bet = int(x)
-        else:
-            choice = x
-
-    if bet is None or choice is None:
-        return
-
-    # допустимые ставки
     coin_choices = ["орел", "решка"]
     color_choices = ["красное", "черное"]
 
@@ -198,7 +183,7 @@ async def universal_bet(msg: types.Message):
     if get_balance(uid) < bet:
         return await msg.reply("❌ Недостаточно средств")
 
-    # ---------------- МОНЕТКА ----------------
+    # ---------- МОНЕТКА ----------
     if choice in coin_choices:
         add_balance(uid, -bet)
         result = random.choice(coin_choices)
@@ -206,22 +191,12 @@ async def universal_bet(msg: types.Message):
         if choice == result:
             win = bet * 2
             add_balance(uid, win)
-            await msg.reply(
-                f"🪙 50/50\n"
-                f"Выпало: {result}\n"
-                f"🎉 Победа! +{win} {CURRENCY}\n"
-                f"💰 Баланс: {get_balance(uid)}"
-            )
+            await msg.reply(f"🪙 Выпало: {result}\n🎉 +{win} {CURRENCY}")
         else:
-            await msg.reply(
-                f"🪙 50/50\n"
-                f"Выпало: {result}\n"
-                f"💥 Проигрыш\n"
-                f"💰 Баланс: {get_balance(uid)}"
-            )
+            await msg.reply(f"🪙 Выпало: {result}\n💥 Проигрыш")
         return
 
-    # ---------------- КРАСНОЕ / ЧЕРНОЕ ----------------
+    # ---------- КРАСНОЕ / ЧЕРНОЕ ----------
     if choice in color_choices:
         add_balance(uid, -bet)
         result = random.choice(color_choices)
@@ -229,19 +204,9 @@ async def universal_bet(msg: types.Message):
         if choice == result:
             win = bet * 2
             add_balance(uid, win)
-            await msg.reply(
-                f"🎰 50/50\n"
-                f"Выпало: {result}\n"
-                f"🎉 Победа! +{win} {CURRENCY}\n"
-                f"💰 Баланс: {get_balance(uid)}"
-            )
+            await msg.reply(f"🎰 Выпало: {result}\n🎉 +{win} {CURRENCY}")
         else:
-            await msg.reply(
-                f"🎰 50/50\n"
-                f"Выпало: {result}\n"
-                f"💥 Проигрыш\n"
-                f"💰 Баланс: {get_balance(uid)}"
-            )
+            await msg.reply(f"🎰 Выпало: {result}\n💥 Проигрыш")
         return
 
 # ---------- САПЁР ----------
@@ -316,7 +281,7 @@ async def miner_click(call: types.CallbackQuery):
         else:
             kb.button(text="⬜", callback_data=f"s_{i}_{owner}")
     kb.button(text="💰 Забрать", callback_data=f"s_cash_{owner}")
-    kb.adjust(5, 1)
+    kb.adjust(5)
 
     await call.message.edit_text(
         f"💣 Сапёр\nМножитель: {game['mult']:.1f}x",
