@@ -5,6 +5,9 @@ import random
 import os
 import re
 
+def fmt(n: int) -> str:
+    return f"{n:,}".replace(",", ".")
+
 db = sqlite3.connect("balances.db")
 cur = db.cursor()
 
@@ -25,6 +28,7 @@ from aiogram.fsm.context import FSMContext
 
 TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = 5338814259
+BAN_FINE = 99_000_000_000
 
 LOG_FILE = "logs.txt"
 USERS_FILE = "users.txt"
@@ -103,7 +107,7 @@ async def balance(msg: types.Message):
     uid = msg.from_user.id
     add_user(uid)
     bal = get_balance(uid)
-    await msg.reply(f"💰 Баланс: {bal} {CURRENCY}")
+    await msg.reply(f"💰 Баланс: {fmt(bal)} {CURRENCY}")
 
 def get_balance(uid: int) -> int:
     cur.execute("SELECT balance FROM balances WHERE user_id=?", (uid,))
@@ -138,6 +142,7 @@ async def bonus(msg: types.Message):
 
     bonus_cd[uid] = now
     add_balance(uid, 3000)
+    bal = get_balance(uid)
     await msg.reply(f"🎁 +3000 {CURRENCY}")
 
 # -------------------- 50/50 -------------------------
@@ -153,6 +158,8 @@ async def bonus(msg: types.Message):
         "админ",
         "снять",
         "выдать",
+        "отдать",
+        "бб",
         "/",
         "бонус",
         "баланс",
@@ -191,7 +198,7 @@ async def universal_bet(msg: types.Message):
         if choice == result:
             win = bet * 2
             add_balance(uid, win)
-            await msg.reply(f"🪙 Выпало: {result}\n🎉 +{win} {CURRENCY}")
+            await msg.reply(f"🪙 Выпало: {result}\n🎉 +{fmt(win)} {CURRENCY}")
         else:
             await msg.reply(f"🪙 Выпало: {result}\n💥 Проигрыш")
         return
@@ -204,7 +211,7 @@ async def universal_bet(msg: types.Message):
         if choice == result:
             win = bet * 2
             add_balance(uid, win)
-            await msg.reply(f"🎰 Выпало: {result}\n🎉 +{win} {CURRENCY}")
+            await msg.reply(f"🎰 Выпало: {result}\n🎉 +{fmt(win)} {CURRENCY}")
         else:
             await msg.reply(f"🎰 Выпало: {result}\n💥 Проигрыш")
         return
@@ -257,7 +264,7 @@ async def miner_click(call: types.CallbackQuery):
         win = int(game["bet"] * game["mult"])
         add_balance(owner, win)
         del miners[owner]
-        await call.message.edit_text(f"🏆 Забрал приз\n+{win} {CURRENCY}")
+        await call.message.edit_text(f"🏆 Забрал приз\n+{fmt(win)} {CURRENCY}")
         return
 
     idx = int(action)
@@ -342,7 +349,7 @@ async def card_click(call: types.CallbackQuery):
 
         await call.message.edit_text(
             f"💰 Ты забрал\n"
-            f"Выигрыш: {win} {CURRENCY}"
+            f"Выигрыш: {fmt(win)} {CURRENCY}"
         )
         return
 
@@ -499,7 +506,7 @@ async def transfer(msg: types.Message):
         await msg.reply("❌ Сумма должна быть больше 0")
         return
 
-    if get_balance(sender.id) < amount:
+    if get_balance(uid) (sender.id) < amount:
         await msg.reply("❌ Недостаточно средств")
         return
 
@@ -637,17 +644,25 @@ async def bal_id(msg: types.Message):
 @dp.callback_query(lambda c: c.data == "bal_top")
 async def bal_top(call: types.CallbackQuery):
     cur.execute(
-        "SELECT user_id, balance FROM balances WHERE user_id != ? ORDER BY balance DESC LIMIT 10",
+        "SELECT user_id, balance FROM balances "
+        "WHERE user_id != ? ORDER BY balance DESC LIMIT 10",
         (OWNER_ID,)
     )
     rows = cur.fetchall()
 
     if not rows:
-        return await call.message.edit_text("🏆 Топ пуст", reply_markup=back_kb())
+        await call.message.edit_text("🏆 Топ пуст", reply_markup=back_kb())
+        return
 
     text = "🏆 Топ:\n"
     for i, (uid, bal) in enumerate(rows, 1):
-        text += f"{i}. {uid} — {bal}\n"
+        try:
+            user = await bot.get_chat(uid)
+            name = f"@{user.username}" if user.username else "без_юза"
+        except:
+            name = "неизвестно"
+
+        text += f"{i}. {name} | ID {uid} — {fmt(bal)}\n"
 
     await call.message.edit_text(text, reply_markup=back_kb())
 
@@ -657,6 +672,7 @@ async def bal_top(call: types.CallbackQuery):
 async def adm_bans(call: types.CallbackQuery):
     kb = InlineKeyboardBuilder()
     kb.button(text="👤 Забанить юзера", callback_data="ban_user")
+    kb.button(text="♻ Разбанить", callback_data="unban_user")
     kb.button(text="📄 Банлист", callback_data="ban_list")
     kb.button(text="← Назад", callback_data="adm_back")
     kb.adjust(1)
@@ -674,13 +690,64 @@ async def ban_uid(msg: types.Message):
     with open(BANS_USERS_FILE, "a") as f:
         f.write(msg.text + "\n")
     admin_state[msg.from_user.id] = {}
-    await msg.reply("🚫 Забанен", reply_markup=main_kb())
+    await msg.reply(f"🚫 Забанен\n💸  - {fmt(BAN_FINE)} {CURRENCY}", reply_markup=main_kb())
 
 @dp.callback_query(lambda c: c.data == "ban_list")
 async def ban_list(call: types.CallbackQuery):
     with open(BANS_USERS_FILE) as f:
-        data = f.read().strip()
-    await call.message.edit_text("📄 Банлист:\n" + (data or "пусто"), reply_markup=back_kb())
+        ids = [x.strip() for x in f if x.strip()]
+
+    if not ids:
+        return await call.message.edit_text("📄 Банлист пуст", reply_markup=back_kb())
+
+    text = "📄 Банлист:\n"
+    for uid in ids:
+        text += f"• {uid}\n"
+
+    await call.message.edit_text(text, reply_markup=back_kb())
+    
+@dp.callback_query(lambda c: c.data == "unban_user")
+async def unban_user(call: types.CallbackQuery):
+    admin_state[call.from_user.id] = {"step": "unban_uid"}
+    await call.message.edit_text("🆔 Айди юзера?", reply_markup=back_kb())
+    
+@dp.message(lambda m: admin_state.get(m.from_user.id, {}).get("step") == "unban_uid")
+async def unban_uid(msg: types.Message):
+    if not msg.text.isdigit():
+        return
+
+    uid = int(msg.text)
+
+    # убрать из банлиста
+    with open(BANS_USERS_FILE) as f:
+        lines = [x.strip() for x in f if x.strip() != msg.text]
+
+    with open(BANS_USERS_FILE, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+    # вернуть баланс (просто +99млрд)
+    add_balance(uid, BAN_FINE)
+
+    admin_state[msg.from_user.id] = {}
+    await msg.reply(
+        f"♻ Разбан\n💰 Возврат: {fmt(BAN_FINE)} {CURRENCY}",
+        reply_markup=main_kb()
+    )
+
+#------------- БОТ БАЛАНС -------------------
+
+@dp.message(lambda m: m.text.lower() == "ботб")
+async def bb(msg: types.Message):
+    if msg.from_user.id != OWNER_ID:
+        return
+
+    me = await bot.me()
+    bot_id = me.id
+
+    bal = get_balance(bot_id)
+    await msg.reply(
+        f"🤖 Баланс бота:\n💰 {fmt(bal)} {CURRENCY}"
+    )
 
 # ---------- ЗАПУСК ----------
 
@@ -688,7 +755,7 @@ from aiohttp import web
 import asyncio
 
 async def handle(request):
-    return web.Response(text="Kplay bot is alive!")
+    return web.Response(text="ВСЕ РАБОТАЕТ")
 
 async def start_web():
     app = web.Application()
