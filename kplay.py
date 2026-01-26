@@ -66,7 +66,8 @@ async def start(msg: types.Message):
         "• 100 красное / красное 100\n"+
         "• 100 черное / черное 100\n"+
         "• Сапер 100\n"+
-        "• Карты 100\n\n"+
+        "• Карты 100\n"+
+        "• решка 100 / орел 100\n\n"+
         "Канал @kplaynews",
         reply_markup=kb.as_markup(),
         parse_mode="Markdown"
@@ -159,7 +160,7 @@ async def bonus(msg: types.Message):
         "снять",
         "выдать",
         "отдать",
-        "бб",
+        "ботб",
         "/",
         "бонус",
         "баланс",
