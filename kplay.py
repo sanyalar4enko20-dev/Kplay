@@ -25,6 +25,12 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardButton
+from aiogram.types import Dice
+import time
+from collections import defaultdict, deque
+
 
 TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = 5338814259
@@ -37,6 +43,7 @@ BONUS_TIME = 12 * 60 * 60
 CURRENCY = "playks"
 
 bonus_cd = {}
+pending_transfers = {}
 
 bot = Bot(TOKEN)
 dp = Dispatcher()
@@ -67,7 +74,9 @@ async def start(msg: types.Message):
         "• 100 черное / черное 100\n"+
         "• Сапер 100\n"+
         "• Карты 100\n"+
-        "• решка 100 / орел 100\n\n"+
+        "• Куб / кубик\n"+
+        "• Баскетбол / Баскет\n"+
+        "• Казино, казик, спин, 777, деп, рулетка, крутилка\n\n"+
         "Канал @kplaynews",
         reply_markup=kb.as_markup(),
         parse_mode="Markdown"
@@ -101,6 +110,43 @@ def get_all_users():
     with open(USERS_FILE, "r") as f:
         return [int(x.strip()) for x in f if x.strip().isdigit()]
 
+#--------------- КД ------------
+
+SPAM_LIMIT = 3        # сообщений
+SPAM_INTERVAL = 4    # секунд
+SPAM_MUTE = 2        # секунд
+
+user_messages = defaultdict(lambda: deque())
+user_muted_until = {}
+
+from aiogram.dispatcher.middlewares.base import BaseMiddleware
+
+class AntiSpamMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        if not isinstance(event, types.Message):
+            return await handler(event, data)
+
+        uid = event.from_user.id
+        now = time.time()
+
+        if uid in user_muted_until and user_muted_until[uid] > now:
+            return  # ❗ тихо блокируем, но НЕ жрём хендлеры
+
+        q = user_messages[uid]
+        while q and now - q[0] > SPAM_INTERVAL:
+            q.popleft()
+
+        q.append(now)
+
+        if len(q) >= SPAM_LIMIT:
+            user_muted_until[uid] = now + SPAM_MUTE
+            q.clear()
+            return
+
+        return await handler(event, data)
+        
+dp.message.middleware(AntiSpamMiddleware())
+        
 # ---------- БАЛАНС ----------
 
 @dp.message(lambda m: m.text and m.text.lower() in ["б", "баланс"])
@@ -146,6 +192,23 @@ async def bonus(msg: types.Message):
     bal = get_balance(uid)
     await msg.reply(f"🎁 +3000 {CURRENCY}")
 
+#-------------------- СМАЙЛЫ ЛУДКИ -----------
+
+@dp.message(lambda m: m.text.lower() in ["куб", "кубик"])
+async def dice_game(msg: types.Message):
+    await msg.reply_dice(emoji="🎲")
+    
+@dp.message(lambda m: m.text.lower() in ["баскет", "баскетбол"])
+async def basket_game(msg: types.Message):
+    await msg.reply_dice(emoji="🏀")
+
+
+@dp.message(lambda m: m.text.lower() in [
+    "казино", "казик", "спин", "777", "деп", "рулетка", "крутилка"
+])
+async def casino_game(msg: types.Message):
+    await msg.reply_dice(emoji="🎰")
+
 # -------------------- 50/50 -------------------------
 
 @dp.message(
@@ -160,7 +223,6 @@ async def bonus(msg: types.Message):
         "снять",
         "выдать",
         "отдать",
-        "ботб",
         "/",
         "бонус",
         "баланс",
@@ -486,9 +548,19 @@ async def take(msg: types.Message):
 
 # ---------- ПЕРЕДАЧА (п 100) ----------
 
-@dp.message(lambda m: m.text and re.fullmatch(r"отдать\s+\d+", m.text.lower()))
+@dp.message()
 async def transfer(msg: types.Message):
-    add_user(msg.from_user.id)
+    if not msg.text:
+        return
+
+    text = msg.text.lower().split()
+
+    if text[0] != "отдать":
+        return
+
+    if len(text) < 2 or not text[1].isdigit():
+        await msg.reply("❌ Пример: Отдать 10000 (ответом на сообщение)")
+        return
 
     if not msg.reply_to_message:
         await msg.reply("❌ Используй команду ответом на сообщение")
@@ -496,27 +568,108 @@ async def transfer(msg: types.Message):
 
     sender = msg.from_user
     receiver = msg.reply_to_message.from_user
+    amount = int(text[1])
+
+    if receiver.is_bot:
+        await msg.reply("❌ Боту нельзя передавать валюту")
+        return
 
     if sender.id == receiver.id:
         await msg.reply("❌ Нельзя передать самому себе")
         return
 
-    amount = int(msg.text.split()[1])
-
     if amount <= 0:
         await msg.reply("❌ Сумма должна быть больше 0")
         return
 
-    if get_balance(uid) (sender.id) < amount:
+    if get_balance(sender.id) < amount:
         await msg.reply("❌ Недостаточно средств")
         return
 
-    add_balance(sender.id, -amount)
-    add_balance(receiver.id, amount)
+    # 🔹 МАЛАЯ СУММА — БЕЗ ПОДТВЕРЖДЕНИЯ
+    if amount < 10_000:
+        add_balance(sender.id, -amount)
+        add_balance(receiver.id, amount)
+
+        await msg.reply(
+            f"💸 {user_label(sender)} передал {fmt(amount)} {CURRENCY} {user_label(receiver)}"
+        )
+        return
+
+    # 🔹 ПОДТВЕРЖДЕНИЕ
+    tid = f"{sender.id}:{receiver.id}:{amount}"
+
+    pending_transfers[tid] = {
+        "from": sender.id,
+        "to": receiver.id,
+        "amount": amount
+    }
+
+    from_name = f"@{sender.username}" if sender.username else f"ID {sender.id}"
+    to_name = f"@{receiver.username}" if receiver.username else f"ID {receiver.id}"
+
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Подтвердить", callback_data=f"pay_yes:{tid}")
+    kb.button(text="❌ Отмена", callback_data=f"pay_no:{tid}")
+    kb.adjust(2)
 
     await msg.reply(
-        f"💸 {user_label(sender)} передал {amount} {CURRENCY} {user_label(receiver)}"
+        f"⚠️ *Подтверждение операции*\n\n"
+        f"💸 Сумма: `{fmt(amount)}`\n"
+        f"👤 Отправитель: {from_name}\n"
+        f"🎯 Получатель: {to_name}\n\n"
+        f"Вы уверены?",
+        reply_markup=kb.as_markup(),
+        parse_mode="Markdown"
     )
+    
+@dp.callback_query(lambda c: c.data.startswith("pay_yes:"))
+async def confirm_pay(call: types.CallbackQuery):
+    tid = call.data.split(":", 1)[1]
+
+    data = pending_transfers.get(tid)
+    if not data:
+        await call.answer("❌ Операция не найдена", show_alert=True)
+        return
+
+    if call.from_user.id != data["from"]:
+        await call.answer("❌ Это не ваша операция", show_alert=True)
+        return
+
+    if get_balance(data["from"]) < data["amount"]:
+        await call.message.edit_text("❌ Недостаточно средств")
+        pending_transfers.pop(tid, None)
+        return
+
+    add_balance(data["from"], -data["amount"])
+    add_balance(data["to"], data["amount"])
+
+    pending_transfers.pop(tid, None)
+
+    await call.message.edit_text(
+        f"✅ Перевод выполнен\n"
+        f"💸 {fmt(data['amount'])}"
+    )
+
+    await call.answer()
+    
+@dp.callback_query(lambda c: c.data.startswith("pay_no:"))
+async def cancel_pay(call: types.CallbackQuery):
+    tid = call.data.split(":", 1)[1]
+
+    data = pending_transfers.get(tid)
+    if not data:
+        await call.answer("❌ Уже отменено", show_alert=True)
+        return
+
+    if call.from_user.id != data["from"]:
+        await call.answer("❌ Это не ваша операция", show_alert=True)
+        return
+
+    pending_transfers.pop(tid, None)
+
+    await call.message.edit_text("❌ Перевод отменён")
+    await call.answer()
     
 # ================== ADMIN PANEL FIXED ==================
 
@@ -733,21 +886,6 @@ async def unban_uid(msg: types.Message):
     await msg.reply(
         f"♻ Разбан\n💰 Возврат: {fmt(BAN_FINE)} {CURRENCY}",
         reply_markup=main_kb()
-    )
-
-#------------- БОТ БАЛАНС -------------------
-
-@dp.message(lambda m: m.text.lower() == "ботб")
-async def bb(msg: types.Message):
-    if msg.from_user.id != OWNER_ID:
-        return
-
-    me = await bot.me()
-    bot_id = me.id
-
-    bal = get_balance(bot_id)
-    await msg.reply(
-        f"🤖 Баланс бота:\n💰 {fmt(bal)} {CURRENCY}"
     )
 
 # ---------- ЗАПУСК ----------
