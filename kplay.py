@@ -479,6 +479,31 @@ async def card_click(call: types.CallbackQuery):
         reply_markup=kb.as_markup()
     )
 
+# ---------- ТОП / BALANCES ДЛЯ ВСЕХ ----------
+
+@dp.message(lambda m: m.text and m.text.lower() in ["/top", "топ", "балансы", "/stat"])
+async def show_top(msg: types.Message):
+    cur.execute(
+        "SELECT user_id, balance FROM balances "
+        "ORDER BY balance DESC LIMIT 10"
+    )
+    rows = cur.fetchall()
+
+    if not rows:
+        await msg.reply("🏆 Топ пуст")
+        return
+
+    text = "🏆 Топ игроков:\n"
+    for i, (uid, bal) in enumerate(rows, 1):
+        try:
+            user = await bot.get_chat(uid)
+            name = f"@{user.username}" if user.username else f"ID {uid}"
+        except:
+            name = f"ID {uid}"
+        text += f"{i}. {name} — {fmt(bal)} {CURRENCY}\n"
+
+    await msg.reply(text)
+
 # ---------- ВЫДАТЬ / СНЯТЬ ----------
 
 def user_label(user: types.User):
