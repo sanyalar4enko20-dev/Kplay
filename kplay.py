@@ -76,7 +76,8 @@ async def start(msg: types.Message):
         "• Карты 100\n"+
         "• Куб / кубик\n"+
         "• Баскетбол / Баскет\n"+
-        "• Казино, казик, спин, 777, деп, рулетка, крутилка\n\n"+
+        "• Казино, казик, спин, 777, деп, рулетка, крутилка\n"+
+        "• Балансы, /top, /stat, топ\n\n"+
         "Канал @kplaynews",
         reply_markup=kb.as_markup(),
         parse_mode="Markdown"
