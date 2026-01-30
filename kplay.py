@@ -32,7 +32,7 @@ import time
 from collections import defaultdict, deque
 
 
-TOKEN = "8536913712:AAHh-kgezThCdjQyyA7viMwOn7Q0rFVmcZQ"
+TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = 5338814259
 BAN_FINE = 99_000_000_000
 
@@ -66,7 +66,7 @@ async def start(msg: types.Message):
     await msg.answer(
         "👋 Привет, я Kplay. бот для игр 🎮\n\n"+
         "👑 Поддержка:\n"+
-        "@qua4t\n\n"+
+        "@K_support\n\n"+
         "📜 Команды:\n"+
         "• Б / баланс — баланс\n"+
         "• Бонус — бонус (12ч)\n"+
