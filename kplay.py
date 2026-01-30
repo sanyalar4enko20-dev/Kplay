@@ -32,7 +32,7 @@ import time
 from collections import defaultdict, deque
 
 
-TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = "8536913712:AAHh-kgezThCdjQyyA7viMwOn7Q0rFVmcZQ"
 OWNER_ID = 5338814259
 BAN_FINE = 99_000_000_000
 
@@ -76,7 +76,8 @@ async def start(msg: types.Message):
         "• Карты 100\n"+
         "• Куб / кубик\n"+
         "• Баскетбол / Баскет\n"+
-        "• Казино, казик, спин, 777, деп, рулетка, крутилка\n\n"+
+        "• Казино, казик, спин, 777, деп, рулетка, крутилка\n"+
+        "• Топ, балансы\n\n"+
         "Канал @kplaynews",
         reply_markup=kb.as_markup(),
         parse_mode="Markdown"
@@ -149,7 +150,7 @@ dp.message.middleware(AntiSpamMiddleware())
         
 # ---------- БАЛАНС ----------
 
-@dp.message(lambda m: m.text and m.text.lower() in ["б", "баланс"])
+@dp.message(lambda m: m.text and m.text.lower() in ["б", "баланс", "/b", "/bal", "/balance", "балик", "бал"])
 async def balance(msg: types.Message):
     uid = msg.from_user.id
     add_user(uid)
@@ -173,7 +174,7 @@ def add_balance(uid: int, amount: int):
     
 # ---------- БОНУС ----------
 
-@dp.message(lambda m: m.text and m.text.lower() == "бонус")
+@dp.message(lambda m: m.text and m.text.lower() in  ["бонус", "/bonus"])
 async def bonus(msg: types.Message):
     add_user(msg.from_user.id)
     uid = msg.from_user.id
@@ -194,17 +195,17 @@ async def bonus(msg: types.Message):
 
 #-------------------- СМАЙЛЫ ЛУДКИ -----------
 
-@dp.message(lambda m: m.text.lower() in ["куб", "кубик"])
+@dp.message(lambda m: m.text.lower() in ["куб", "кубик", "/cube"])
 async def dice_game(msg: types.Message):
     await msg.reply_dice(emoji="🎲")
     
-@dp.message(lambda m: m.text.lower() in ["баскет", "баскетбол"])
+@dp.message(lambda m: m.text.lower() in ["баскет", "баскетбол", "/basket", "/basketball"])
 async def basket_game(msg: types.Message):
     await msg.reply_dice(emoji="🏀")
 
 
 @dp.message(lambda m: m.text.lower() in [
-    "казино", "казик", "спин", "777", "деп", "рулетка", "крутилка"
+    "казино", "казик", "спин", "777", "деп", "рулетка", "крутилка", "/spin", "/dep", "/777", "/casino"
 ])
 async def casino_game(msg: types.Message):
     await msg.reply_dice(emoji="🎰")
@@ -244,7 +245,7 @@ async def universal_bet(msg: types.Message):
     if bet is None or choice is None:
         return
 
-    coin_choices = ["орел", "решка"]
+    coin_choices = ["орёл", "решка"]
     color_choices = ["красное", "черное"]
 
     uid = msg.from_user.id
@@ -481,7 +482,7 @@ async def card_click(call: types.CallbackQuery):
 
 # --------------------- ТОП ------------------------
 
-@dp.message(lambda m: m.text and m.text.lower() in ["/top", "топ", "балансы", "/stat"])
+@dp.message(lambda m: m.text and m.text.lower() in ["/top", "топ", "балансы", "/stat", "/baltop"])
 async def show_top(msg: types.Message):
     cur.execute(
         "SELECT user_id, balance FROM balances "
