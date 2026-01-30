@@ -53,7 +53,7 @@ card_games = {}
 
 #---------- ШАБЛОН СТАРТА ----------
 
-@dp.message(lambda m: m.text == "/start")
+@dp.message(lambda m: m.text and m.text.lower().startswith("/start"))
 async def start(msg: types.Message):
     add_user(msg.from_user.id)
 
@@ -62,11 +62,10 @@ async def start(msg: types.Message):
         text="➕ Добавить в чат",
         url=f"https://t.me/{(await bot.me()).username}?startgroup=true"
     )
-
     await msg.answer(
         "👋 Привет, я Kplay. бот для игр 🎮\n\n"+
         "👑 Поддержка:\n"+
-        "@K_support\n\n"+
+        "@Kplay_support\n\n"+
         "📜 Команды:\n"+
         "• Б / баланс — баланс\n"+
         "• Бонус — бонус (12ч)\n"+
