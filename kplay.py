@@ -53,33 +53,37 @@ card_games = {}
 
 #---------- ШАБЛОН СТАРТА ----------
 
-@dp.message(lambda m: m.text and m.text.lower().startswith("/start"))
+from aiogram.filters import CommandStart
+
+@dp.message(CommandStart())
 async def start(msg: types.Message):
     add_user(msg.from_user.id)
+
+    me = await bot.me()
 
     kb = InlineKeyboardBuilder()
     kb.button(
         text="➕ Добавить в чат",
-        url=f"https://t.me/{(await bot.me()).username}?startgroup=true"
+        url=f"https://t.me/{me.username}?startgroup=true"
     )
+
     await msg.answer(
-        "👋 Привет, я Kplay. бот для игр 🎮\n\n"+
-        "👑 Поддержка:\n"+
-        "@Kplay_support\n\n"+
-        "📜 Команды:\n"+
-        "• Б / баланс — баланс\n"+
-        "• Бонус — бонус (12ч)\n"+
-        "• 100 красное / красное 100\n"+
-        "• 100 черное / черное 100\n"+
-        "• Сапер 100\n"+
-        "• Карты 100\n"+
-        "• Куб / кубик\n"+
-        "• Баскетбол / Баскет\n"+
-        "• Казино, казик, спин, 777, деп, рулетка, крутилка\n"+
-        "• Топ, балансы\n\n"+
+        "👋 Привет, я Kplay - бот для игр 🎮\n\n"
+        "👑 Поддержка:\n"
+        "@Kplay_support\n\n"
+        "📜 Команды:\n"
+        "• Б / баланс — баланс\n"
+        "• Бонус — бонус (12ч)\n"
+        "• 100 красное / красное 100\n"
+        "• 100 черное / черное 100\n"
+        "• Сапер 100\n"
+        "• Карты 100\n"
+        "• Куб / кубик\n"
+        "• Баскетбол / Баскет\n"
+        "• Казино, казик, спин, 777, деп, рулетка, крутилка\n"
+        "• Топ, балансы\n\n"
         "Канал @kplaynews",
-        reply_markup=kb.as_markup(),
-        parse_mode="Markdown"
+        reply_markup=kb.as_markup()
     )
 
 # ---------- ЛОГ ----------
@@ -194,16 +198,16 @@ async def bonus(msg: types.Message):
 
 #-------------------- СМАЙЛЫ ЛУДКИ -----------
 
-@dp.message(lambda m: m.text.lower() in ["куб", "кубик", "/cube"])
+@dp.message(lambda m: m.text and m.text.lower() in ["куб", "кубик", "/cube"])
 async def dice_game(msg: types.Message):
     await msg.reply_dice(emoji="🎲")
     
-@dp.message(lambda m: m.text.lower() in ["баскет", "баскетбол", "/basket", "/basketball"])
+@dp.message(lambda m: m.text and m.text.lower() in ["баскет", "баскетбол", "/basket", "/basketball"])
 async def basket_game(msg: types.Message):
     await msg.reply_dice(emoji="🏀")
 
 
-@dp.message(lambda m: m.text.lower() in [
+@dp.message(lambda m: m.text and m.text.lower() in [
     "казино", "казик", "спин", "777", "деп", "рулетка", "крутилка", "/spin", "/dep", "/777", "/casino"
 ])
 async def casino_game(msg: types.Message):
@@ -226,7 +230,6 @@ async def casino_game(msg: types.Message):
         "/",
         "бонус",
         "баланс",
-        "профиль"
     ))
 )
 async def universal_bet(msg: types.Message):
@@ -244,7 +247,7 @@ async def universal_bet(msg: types.Message):
     if bet is None or choice is None:
         return
 
-    coin_choices = ["орёл", "решка"]
+    coin_choices = ["орел", "решка"]
     color_choices = ["красное", "черное"]
 
     uid = msg.from_user.id
@@ -481,31 +484,35 @@ async def card_click(call: types.CallbackQuery):
 
 # --------------------- ТОП ------------------------
 
-@dp.message(lambda m: m.text and m.text.lower() in ["/top", "топ", "балансы", "/stat", "/baltop"])
+@dp.message(lambda m: m.text and m.text.lower() in [
+    "топ", "/top", "/stat", "балансы", "/baltop"
+])
 async def show_top(msg: types.Message):
     cur.execute(
         "SELECT user_id, balance FROM balances "
-        "WHERE balance > 0 AND user_id != ? "
-        "ORDER BY balance DESC LIMIT 10",
-        (OWNER_ID,)
+        "WHERE balance > 0 "
+        "ORDER BY balance DESC LIMIT 10"
     )
     rows = cur.fetchall()
 
     if not rows:
-        await msg.reply("🏆 Топ пуст")
-        return
+        return await msg.reply("🏆 Топ пуст")
 
-    text = "🏆 Топ игроков:\n"
+    text = "🏆 <b>Топ балансов</b>\n"
+
     for i, (uid, bal) in enumerate(rows, 1):
-        try:
-            user = await bot.get_chat(uid)
-            name = f"@{user.username}" if user.username else f"ID {uid}"
-        except:
-            name = f"ID {uid}"
+        bal = f"{bal:,}".replace(",", ".")
+        text += (
+            f"{i}. "
+            f'<a href="tg://user?id={uid}">{uid}</a>'
+            f" - {bal} playks\n"
+        )
 
-        text += f"{i}. {name} — {fmt(bal)} {CURRENCY}\n"
-
-    await msg.reply(text)
+    await msg.reply(
+        text,
+        parse_mode="HTML",
+        disable_web_page_preview=True
+    )
     
 # ---------- ВЫДАТЬ / СНЯТЬ ----------
 
