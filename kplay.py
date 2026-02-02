@@ -17,7 +17,15 @@ CREATE TABLE IF NOT EXISTS balances (
     balance INTEGER NOT NULL
 )
 """)
-db.commit()	
+db.commit()
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    user_id INTEGER PRIMARY KEY,
+    balance INTEGER DEFAULT 0
+)
+""")
+db.commit()
 
 from datetime import datetime
 
@@ -76,6 +84,8 @@ async def start(msg: types.Message):
         "• Бонус — бонус (12ч)\n"
         "• 100 красное / красное 100\n"
         "• 100 черное / черное 100\n"
+        "• 100 орел / орел 100\n"
+        "• 100 решка / решка 100\n"
         "• Сапер 100\n"
         "• Карты 100\n"
         "• Куб / кубик\n"
@@ -212,6 +222,40 @@ async def basket_game(msg: types.Message):
 ])
 async def casino_game(msg: types.Message):
     await msg.reply_dice(emoji="🎰")
+
+#-------------- ПРОСТЫЕ ОТВЕТЫ ----------------
+
+@dp.message(lambda m: m.text and m.text.lower() == "пиу")
+async def cmd_piu(msg: types.Message):
+    await msg.reply("Пау")
+
+@dp.message(lambda m: m.text and m.text.lower() == "пинг")
+async def cmd_ping(msg: types.Message):
+    await msg.reply("Понг")
+
+@dp.message(lambda m: m.text and m.text.lower() == "слон")
+async def cmd_elephant(msg: types.Message):
+    await msg.reply("Купи слона")
+    
+@dp.message(lambda m: m.text and m.text.lower() == "до")
+async def cmd_do(msg: types.Message):
+    await msg.reply("Дооооо")
+    
+@dp.message(lambda m: m.text and m.text.lower() == "бот")
+async def cmd_botik(msg: types.Message):
+    await msg.reply("Я тут")
+    
+@dp.message(lambda m: m.text and m.text.lower() == "бан")
+async def cmd_bon(msg: types.Message):
+    await msg.reply("Всем бон💀")
+    
+@dp.message(lambda m: m.text and m.text.lower() == "депаем")
+async def cmd_depaem(msg: types.Message):
+    await msg.reply("Давно пора")
+    
+@dp.message(lambda m: m.text and m.text.lower() == "король")
+async def cmd_king(msg: types.Message):
+    await msg.reply("Звали?")
 
 # -------------------- 50/50 -------------------------
 
@@ -488,24 +532,23 @@ async def card_click(call: types.CallbackQuery):
     "топ", "/top", "/stat", "балансы", "/baltop"
 ])
 async def show_top(msg: types.Message):
-    cur.execute(
+    rows = cur.execute(
         "SELECT user_id, balance FROM balances "
-        "WHERE balance > 0 "
-        "ORDER BY balance DESC LIMIT 10"
-    )
-    rows = cur.fetchall()
+        "WHERE user_id != ? AND balance > 0 "
+        "ORDER BY balance DESC LIMIT 10",
+        (OWNER_ID,)
+    ).fetchall()
 
     if not rows:
         return await msg.reply("🏆 Топ пуст")
 
-    text = "🏆 <b>Топ балансов</b>\n"
+    text = "🏆 <b>Топ балансов</b>\n\n"
 
     for i, (uid, bal) in enumerate(rows, 1):
-        bal = f"{bal:,}".replace(",", ".")
         text += (
             f"{i}. "
-            f'<a href="tg://user?id={uid}">{uid}</a>'
-            f" - {bal} playks\n"
+            f'<a href="tg://openmessage?user_id={uid}">{uid}</a>'
+            f" — {fmt(bal)} {CURRENCY}\n"
         )
 
     await msg.reply(
