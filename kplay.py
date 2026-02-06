@@ -27,6 +27,35 @@ CREATE TABLE IF NOT EXISTS users (
 """)
 db.commit()
 
+cur.execute("""
+CREATE TABLE IF NOT EXISTS untop (
+    user_id INTEGER PRIMARY KEY
+)
+""")
+db.commit()
+
+cur.execute("""
+CREATE TABLE IF NOT EXISTS chats (
+    chat_id INTEGER PRIMARY KEY
+)
+""")
+db.commit()
+
+import sqlite3
+import time
+
+db = sqlite3.connect("bot.db")
+sql = db.cursor()
+
+sql.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    uid INTEGER PRIMARY KEY,
+    balance INTEGER DEFAULT 0,
+    games INTEGER DEFAULT 0,
+    win_streak INTEGER DEFAULT 0
+)
+""")
+
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types
@@ -38,11 +67,12 @@ from aiogram.types import InlineKeyboardButton
 from aiogram.types import Dice
 import time
 from collections import defaultdict, deque
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
 TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = 5338814259
-BAN_FINE = 99_000_000_000
+ADMIN_ID = 5338814259
 
 LOG_FILE = "logs.txt"
 USERS_FILE = "users.txt"
@@ -91,7 +121,9 @@ async def start(msg: types.Message):
         "• Куб / кубик\n"
         "• Баскетбол / Баскет\n"
         "• Казино, казик, спин, 777, деп, рулетка, крутилка\n"
-        "• Топ, балансы\n\n"
+        "• Топ, балансы\n"
+        "• Антоп / бектоп (антоп убирает ссылку на твой профиль из топа)\n"
+        "• Попросить (сумма) (причина)\n\n"
         "Канал @kplaynews",
         reply_markup=kb.as_markup()
     )
@@ -160,7 +192,7 @@ class AntiSpamMiddleware(BaseMiddleware):
         return await handler(event, data)
         
 dp.message.middleware(AntiSpamMiddleware())
-        
+   
 # ---------- БАЛАНС ----------
 
 @dp.message(lambda m: m.text and m.text.lower() in ["б", "баланс", "/b", "/bal", "/balance", "балик", "бал"])
@@ -257,39 +289,98 @@ async def cmd_depaem(msg: types.Message):
 async def cmd_king(msg: types.Message):
     await msg.reply("Звали?")
 
+#-------------------- ПРОСЬБА ---------------
+
+@dp.message(lambda m: m.text and m.text.lower().startswith("попросить "))
+async def request_money(msg: types.Message):
+    parts = msg.text.split(maxsplit=2)
+
+    if len(parts) < 3 or not parts[1].isdigit():
+        return await msg.reply("❌ Формат:\n Попросить 20000\n Причина")
+
+    amount = int(parts[1])
+    reason = parts[2]
+
+    user = msg.from_user
+    username = f"@{user.username}" if user.username else "без юза"
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="✅ Одобрить",
+                callback_data=f"req_yes:{user.id}:{amount}:{msg.chat.id}:{username}"
+            ),
+            InlineKeyboardButton(
+                text="❌ Отклонить",
+                callback_data=f"req_no:{user.id}:{amount}:{msg.chat.id}:{username}"
+            )
+        ]
+    ])
+
+    await bot.send_message(
+        ADMIN_ID,
+        f"💸 Запрос средств\n\n"
+        f"👤 Юзер: {username}\n"
+        f"🆔 ID: {user.id}\n"
+        f"💰 Сумма: {fmt(amount)} {CURRENCY}\n"
+        f"📝 Причина: {reason}",
+        reply_markup=kb
+    )
+
+    if amount <=0:
+     return await msg.reply("❌ Сумма должна быть больше 0")
+     
+    await msg.reply("📨 Запрос отправлен админу")
+
+    
+@dp.callback_query(lambda c: c.data.startswith("req_yes"))
+async def approve_request(call: types.CallbackQuery):
+    _, uid, amount, chat_id, username = call.data.split(":")
+    uid = int(uid)
+    amount = int(amount)
+    chat_id = int(chat_id)
+
+    add_user(uid)
+    add_balance(uid, amount)
+
+    await call.message.edit_text("✅ Запрос одобрен")
+
+
+    await bot.send_message(
+    chat_id,
+    f"{username}, ваш запрос на {fmt(amount)} {CURRENCY} одобрен ✅"
+)
+    
+@dp.callback_query(lambda c: c.data.startswith("req_no"))
+async def decline_request(call: types.CallbackQuery):
+    _, uid, amount, chat_id, username = call.data.split(":")
+    amount = int(amount)
+    chat_id = int(chat_id)
+
+    await call.message.edit_text("❌ Запрос отклонён")
+
+    await bot.send_message(
+    chat_id,
+    f"{username}, ваш запрос на {fmt(amount)} {CURRENCY} отклонён ❌"
+)
+
 # -------------------- 50/50 -------------------------
 
 @dp.message(
     lambda m: m.text
     and len(m.text.split()) == 2
-    and not m.text.lower().startswith((
-        "сапер",
-        "сапёр",
-        "карты",
-        "панель",
-        "админ",
-        "снять",
-        "выдать",
-        "отдать",
-        "/",
-        "бонус",
-        "баланс",
-    ))
+    and m.text.lower().replace("ё", "е").split()[0] in {
+        "орел", "решка", "красное", "черное"
+    }
 )
-async def universal_bet(msg: types.Message):
+async def game_5050(msg: types.Message):
     text = msg.text.lower().replace("ё", "е").split()
+    choice, amount = text
 
-    bet = None
-    choice = None
-
-    for x in text:
-        if x.isdigit():
-            bet = int(x)
-        else:
-            choice = x
-
-    if bet is None or choice is None:
+    if not amount.isdigit():
         return
+
+    bet = int(amount)
 
     coin_choices = ["орел", "решка"]
     color_choices = ["красное", "черное"]
@@ -325,13 +416,12 @@ async def universal_bet(msg: types.Message):
         else:
             await msg.reply(f"🎰 Выпало: {result}\n💥 Проигрыш")
         return
-
+        
 # ---------- САПЁР ----------
 
 @dp.message(lambda m: m.text and re.fullmatch(r"(сапер|сапёр)\s+\d+", m.text.lower()))
 async def miner(msg: types.Message):
     add_user(msg.from_user.id)
-
     bet = int(msg.text.split()[1])
     uid = msg.from_user.id
 
@@ -374,7 +464,7 @@ async def miner_click(call: types.CallbackQuery):
         win = int(game["bet"] * game["mult"])
         add_balance(owner, win)
         del miners[owner]
-        await call.message.edit_text(f"🏆 Забрал приз\n+{fmt(win)} {CURRENCY}")
+        await call.message.edit_text(f"🏆 Ты забрал приз\n+{fmt(win)} {CURRENCY}")
         return
 
     idx = int(action)
@@ -446,19 +536,25 @@ async def card_click(call: types.CallbackQuery):
 
     parts = call.data.split("_")
 
-    # 💰 ЗАБРАТЬ
-    if parts[1] == "cash":
-        uid = int(parts[2])
-        game = card_games.get(uid)
-        if not game:
-            return
+    action = parts[1]
+    uid = int(parts[2])
 
+    # 🔒 ЗАЩИТА — ТОЛЬКО ВЛАДЕЛЕЦ ИГРЫ
+    if call.from_user.id != uid:
+        await call.answer("❌ Это не твоя игра", show_alert=True)
+        return
+
+    game = card_games.get(uid)
+    if not game:
+        return
+
+    # 💰 ЗАБРАТЬ
+    if action == "cash":
         win = int(game["bet"] * game["mult"])
         add_balance(uid, win)
-        del card_games[uid]
-
+        del card_games[uid]       
         await call.message.edit_text(
-            f"💰 Ты забрал\n"
+            f"💰 Ты забрал приз\n"
             f"Выигрыш: {fmt(win)} {CURRENCY}"
         )
         return
@@ -534,28 +630,65 @@ async def card_click(call: types.CallbackQuery):
 async def show_top(msg: types.Message):
     rows = cur.execute(
         "SELECT user_id, balance FROM balances "
-        "WHERE user_id != ? AND balance > 0 "
-        "ORDER BY balance DESC LIMIT 10",
+        "WHERE user_id != ? ORDER BY balance DESC LIMIT 10",
         (OWNER_ID,)
     ).fetchall()
 
     if not rows:
         return await msg.reply("🏆 Топ пуст")
 
+    hidden = {
+        x[0] for x in cur.execute("SELECT user_id FROM untop").fetchall()
+    }
+
     text = "🏆 <b>Топ балансов</b>\n\n"
 
     for i, (uid, bal) in enumerate(rows, 1):
-        text += (
-            f"{i}. "
-            f'<a href="tg://openmessage?user_id={uid}">{uid}</a>'
-            f" — {fmt(bal)} {CURRENCY}\n"
-        )
+        bal = fmt(bal)
+
+        if uid in hidden:
+            # 👁 скрыт
+            line = f"{i}. {uid} [👁] — {bal} {CURRENCY}\n"
+        else:
+            # 👤 обычный
+            line = (
+                f'{i}. <a href="tg://openmessage?user_id={uid}">{uid}</a> '
+                f"— {bal} {CURRENCY}\n"
+            )
+
+        text += line
 
     await msg.reply(
         text,
         parse_mode="HTML",
         disable_web_page_preview=True
     )
+    
+#------- антоп --------
+
+@dp.message(lambda m: m.text and m.text.lower() in ["/untop", "антоп"])
+async def untop_cmd(msg: types.Message):
+    uid = msg.from_user.id
+
+    cur.execute(
+        "INSERT OR IGNORE INTO untop (user_id) VALUES (?)",
+        (uid,)
+    )
+    db.commit()
+
+    await msg.reply("🙈 Ты скрыт в топе\nТвой профиль больше не будет ссылкой")
+    
+@dp.message(lambda m: m.text and m.text.lower() in ["/backtop", "бектоп"])
+async def backtop_cmd(msg: types.Message):
+    uid = msg.from_user.id
+
+    cur.execute(
+        "DELETE FROM untop WHERE user_id = ?",
+        (uid,)
+    )
+    db.commit()
+
+    await msg.reply("👀 Ты снова отображаешься в топе с ссылкой на профиль")
     
 # ---------- ВЫДАТЬ / СНЯТЬ ----------
 
@@ -749,222 +882,54 @@ async def cancel_pay(call: types.CallbackQuery):
     await call.message.edit_text("❌ Перевод отменён")
     await call.answer()
     
-# ================== ADMIN PANEL FIXED ==================
+#--------------- ФИКС "алала 7" ------------
 
-ADMIN_LOGIN_CMD = "adminkentkplaytokenpydroid"
-ADMIN_PASSWORD = "63580"
+import re
+from aiogram import types
 
-BANS_USERS_FILE = "bans_users.txt"
-BANS_GROUPS_FILE = "bans_groups.txt"
+# все игровые команды, которые принимают ставку
+GAME_COMMANDS = {
+    "карты",
+    "сапер",
+    "красное",
+    "черное",
+    "орел",
+    "решка"
+}
 
-for f in [BANS_USERS_FILE, BANS_GROUPS_FILE]:
-    if not os.path.exists(f):
-        open(f, "w").close()
+def parse_bet(text: str):
+    if not text:
+        return None, None
 
-admin_state = {}
+    text = text.lower().replace("ё", "е").strip()
 
-# ---------- KEYBOARDS ----------
+    for cmd in GAME_COMMANDS:
+        m = re.fullmatch(rf"{cmd}\s+(\d+)", text)
+        if m:
+            return cmd, int(m.group(1))
 
-def main_kb():
-    kb = InlineKeyboardBuilder()
-    kb.button(text="🚫 Баны", callback_data="adm_bans")
-    kb.button(text="💸 Выдать", callback_data="adm_give")
-    kb.button(text="➖ Снять", callback_data="adm_take")
-    kb.button(text="💰 Балансы", callback_data="adm_bal")
-    kb.adjust(2)
-    return kb.as_markup()
+    return None, None
 
-def back_kb():
-    kb = InlineKeyboardBuilder()
-    kb.button(text="← Назад", callback_data="adm_back")
-    return kb.as_markup()
 
-# ---------- LOGIN ----------
+@dp.message()
+async def universal_games(msg: types.Message):
+    cmd, bet = parse_bet(msg.text)
 
-@dp.message(lambda m: m.text == ADMIN_LOGIN_CMD)
-async def admin_login(msg: types.Message):
-    if msg.from_user.id != OWNER_ID:
-        return
-    admin_state[msg.from_user.id] = {"step": "password"}
-    await msg.reply("🔐 Пароль?")
+    if not cmd:
+        return  # ❗ НЕ ИГРА — НЕ ЛОМАЕМ ДРУГИЕ КОМАНДЫ
 
-@dp.message(lambda m: admin_state.get(m.from_user.id, {}).get("step") == "password")
-async def admin_password(msg: types.Message):
-    if msg.text != ADMIN_PASSWORD:
-        return await msg.reply("❌ Неверный пароль")
-    admin_state[msg.from_user.id] = {}
-    await msg.reply("🛡 Админ-панель", reply_markup=main_kb())
+    if bet <= 0:
+        return await msg.reply("❌ Ставка должна быть больше 0")
 
-# ---------- BACK ----------
+    # ⬇️ РАСКИДЫВАЙ ПО СВОИМ ФУНКЦИЯМ
+    if cmd == "карты":
+        await play_cards(msg, bet)
 
-@dp.callback_query(lambda c: c.data == "adm_back")
-async def adm_back(call: types.CallbackQuery):
-    admin_state.pop(call.from_user.id, None)
-    await call.message.edit_text("🛡 Админ-панель", reply_markup=main_kb())
+    elif cmd == "сапер":
+        await play_mines(msg, bet)
 
-# ---------- GIVE ----------
-
-@dp.callback_query(lambda c: c.data == "adm_give")
-async def adm_give(call: types.CallbackQuery):
-    admin_state[call.from_user.id] = {"step": "give_id"}
-    await call.message.edit_text("🆔 Айди?", reply_markup=back_kb())
-
-@dp.message(lambda m: admin_state.get(m.from_user.id, {}).get("step") == "give_id")
-async def give_id(msg: types.Message):
-    if not msg.text.isdigit():
-        return await msg.reply("❌ Айди числом")
-    admin_state[msg.from_user.id] = {"step": "give_sum", "uid": int(msg.text)}
-    await msg.reply("💰 Сумма?")
-
-@dp.message(lambda m: admin_state.get(m.from_user.id, {}).get("step") == "give_sum")
-async def give_sum(msg: types.Message):
-    if not msg.text.isdigit():
-        return await msg.reply("❌ Число")
-    uid = admin_state[msg.from_user.id]["uid"]
-    add_balance(uid, int(msg.text))
-    admin_state[msg.from_user.id] = {}
-    await msg.reply("✅ Успешно", reply_markup=main_kb())
-
-# ---------- TAKE ----------
-
-@dp.callback_query(lambda c: c.data == "adm_take")
-async def adm_take(call: types.CallbackQuery):
-    admin_state[call.from_user.id] = {"step": "take_id"}
-    await call.message.edit_text("🆔 Айди?", reply_markup=back_kb())
-
-@dp.message(lambda m: admin_state.get(m.from_user.id, {}).get("step") == "take_id")
-async def take_id(msg: types.Message):
-    if not msg.text.isdigit():
-        return
-    admin_state[msg.from_user.id] = {"step": "take_sum", "uid": int(msg.text)}
-    await msg.reply("💰 Сумма?")
-
-@dp.message(lambda m: admin_state.get(m.from_user.id, {}).get("step") == "take_sum")
-async def take_sum(msg: types.Message):
-    if not msg.text.isdigit():
-        return
-    uid = admin_state[msg.from_user.id]["uid"]
-    add_balance(uid, -int(msg.text))
-    admin_state[msg.from_user.id] = {}
-    await msg.reply("✅ Успешно", reply_markup=main_kb())
-
-# ---------- BALANCES ----------
-
-@dp.callback_query(lambda c: c.data == "adm_bal")
-async def adm_bal(call: types.CallbackQuery):
-    kb = InlineKeyboardBuilder()
-    kb.button(text="🔍 Проверить баланс", callback_data="bal_check")
-    kb.button(text="🏆 Топ", callback_data="bal_top")
-    kb.button(text="← Назад", callback_data="adm_back")
-    kb.adjust(1)
-    await call.message.edit_text("💰 Балансы", reply_markup=kb.as_markup())
-
-@dp.callback_query(lambda c: c.data == "bal_check")
-async def bal_check(call: types.CallbackQuery):
-    admin_state[call.from_user.id] = {"step": "bal_id"}
-    await call.message.edit_text("🆔 Айди?", reply_markup=back_kb())
-
-@dp.message(lambda m: admin_state.get(m.from_user.id, {}).get("step") == "bal_id")
-async def bal_id(msg: types.Message):
-    if not msg.text.isdigit():
-        return
-    uid = int(msg.text)
-    bal = get_balance(uid)
-    admin_state[msg.from_user.id] = {}
-    await msg.reply(f"👤 {uid}\n💰 {bal} {CURRENCY}", reply_markup=main_kb())
-
-@dp.callback_query(lambda c: c.data == "bal_top")
-async def bal_top(call: types.CallbackQuery):
-    cur.execute(
-        "SELECT user_id, balance FROM balances "
-        "WHERE user_id != ? ORDER BY balance DESC LIMIT 10",
-        (OWNER_ID,)
-    )
-    rows = cur.fetchall()
-
-    if not rows:
-        await call.message.edit_text("🏆 Топ пуст", reply_markup=back_kb())
-        return
-
-    text = "🏆 Топ:\n"
-    for i, (uid, bal) in enumerate(rows, 1):
-        try:
-            user = await bot.get_chat(uid)
-            name = f"@{user.username}" if user.username else "без_юза"
-        except:
-            name = "неизвестно"
-
-        text += f"{i}. {name} | ID {uid} — {fmt(bal)}\n"
-
-    await call.message.edit_text(text, reply_markup=back_kb())
-
-# ---------- BANS ----------
-
-@dp.callback_query(lambda c: c.data == "adm_bans")
-async def adm_bans(call: types.CallbackQuery):
-    kb = InlineKeyboardBuilder()
-    kb.button(text="👤 Забанить юзера", callback_data="ban_user")
-    kb.button(text="♻ Разбанить", callback_data="unban_user")
-    kb.button(text="📄 Банлист", callback_data="ban_list")
-    kb.button(text="← Назад", callback_data="adm_back")
-    kb.adjust(1)
-    await call.message.edit_text("🚫 Баны", reply_markup=kb.as_markup())
-
-@dp.callback_query(lambda c: c.data == "ban_user")
-async def ban_user(call: types.CallbackQuery):
-    admin_state[call.from_user.id] = {"step": "ban_uid"}
-    await call.message.edit_text("🆔 Айди юзера?", reply_markup=back_kb())
-
-@dp.message(lambda m: admin_state.get(m.from_user.id, {}).get("step") == "ban_uid")
-async def ban_uid(msg: types.Message):
-    if not msg.text.isdigit():
-        return
-    with open(BANS_USERS_FILE, "a") as f:
-        f.write(msg.text + "\n")
-    admin_state[msg.from_user.id] = {}
-    await msg.reply(f"🚫 Забанен\n💸  - {fmt(BAN_FINE)} {CURRENCY}", reply_markup=main_kb())
-
-@dp.callback_query(lambda c: c.data == "ban_list")
-async def ban_list(call: types.CallbackQuery):
-    with open(BANS_USERS_FILE) as f:
-        ids = [x.strip() for x in f if x.strip()]
-
-    if not ids:
-        return await call.message.edit_text("📄 Банлист пуст", reply_markup=back_kb())
-
-    text = "📄 Банлист:\n"
-    for uid in ids:
-        text += f"• {uid}\n"
-
-    await call.message.edit_text(text, reply_markup=back_kb())
-    
-@dp.callback_query(lambda c: c.data == "unban_user")
-async def unban_user(call: types.CallbackQuery):
-    admin_state[call.from_user.id] = {"step": "unban_uid"}
-    await call.message.edit_text("🆔 Айди юзера?", reply_markup=back_kb())
-    
-@dp.message(lambda m: admin_state.get(m.from_user.id, {}).get("step") == "unban_uid")
-async def unban_uid(msg: types.Message):
-    if not msg.text.isdigit():
-        return
-
-    uid = int(msg.text)
-
-    # убрать из банлиста
-    with open(BANS_USERS_FILE) as f:
-        lines = [x.strip() for x in f if x.strip() != msg.text]
-
-    with open(BANS_USERS_FILE, "w") as f:
-        f.write("\n".join(lines) + "\n")
-
-    # вернуть баланс (просто +99млрд)
-    add_balance(uid, BAN_FINE)
-
-    admin_state[msg.from_user.id] = {}
-    await msg.reply(
-        f"♻ Разбан\n💰 Возврат: {fmt(BAN_FINE)} {CURRENCY}",
-        reply_markup=main_kb()
-    )
+    elif cmd in ("красное", "черное", "орел", "решка"):
+        await play_roulette(msg, cmd, bet)
 
 # ---------- ЗАПУСК ----------
 
