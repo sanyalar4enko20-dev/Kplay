@@ -72,7 +72,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = 5338814259
-ADMIN_ID = 5338814259
+SUPPORT_ID = 7931101383
 
 LOG_FILE = "logs.txt"
 USERS_FILE = "users.txt"
@@ -92,6 +92,7 @@ card_games = {}
 #---------- ШАБЛОН СТАРТА ----------
 
 from aiogram.filters import CommandStart
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 @dp.message(CommandStart())
 async def start(msg: types.Message):
@@ -100,10 +101,34 @@ async def start(msg: types.Message):
     me = await bot.me()
 
     kb = InlineKeyboardBuilder()
+
+    # 1 ряд
     kb.button(
-        text="➕ Добавить в чат",
+        text="➕ Чат",
         url=f"https://t.me/{me.username}?startgroup=true"
     )
+    kb.button(
+        text="👤 Поддержка",
+        url="tg://openmessage?user_id=7931101383"
+    )
+
+    # 2 ряд
+    kb.button(
+        text="🏢 База",
+        url="https://t.me/kplaybase"
+    )
+    kb.button(
+        text="📢 Канал",
+        url="https://t.me/kplaynews"
+    )
+
+    # 3 ряд
+    kb.button(
+        text="📜 Все команды",
+        url="https://t.me/kplaybase/26"
+    )
+
+    kb.adjust(2, 2, 1)
 
     await msg.answer(
         "👋 Привет, я Kplay - бот для игр 🎮\n\n"
@@ -122,12 +147,11 @@ async def start(msg: types.Message):
         "• Баскетбол / Баскет\n"
         "• Казино, казик, спин, 777, деп, рулетка, крутилка\n"
         "• Топ, балансы\n"
-        "• Антоп / бектоп (антоп убирает ссылку на твой профиль из топа)\n"
-        "• Попросить (сумма) (причина)\n\n"
+        "• Антоп / бектоп (антоп убирает ссылку на твой профиль из топа)\n\n"
         "Канал @kplaynews",
         reply_markup=kb.as_markup()
     )
-
+    
 # ---------- ЛОГ ----------
 
 def log(text):
@@ -289,80 +313,82 @@ async def cmd_depaem(msg: types.Message):
 async def cmd_king(msg: types.Message):
     await msg.reply("Звали?")
 
-#-------------------- ПРОСЬБА ---------------
+#------------- ПОКУПКА ВАЛЮТЫ -------------
 
-@dp.message(lambda m: m.text and m.text.lower().startswith("попросить "))
-async def request_money(msg: types.Message):
-    parts = msg.text.split(maxsplit=2)
+from aiogram.types import LabeledPrice
+from aiogram.enums import ChatType
 
-    if len(parts) < 3 or not parts[1].isdigit():
-        return await msg.reply("❌ Формат:\n Попросить 20000\n Причина")
+@dp.message(lambda m: m.text and m.text.lower().startswith(("купить", "/buy")))
+async def buy_currency(msg: types.Message):
 
-    amount = int(parts[1])
-    reason = parts[2]
+    parts = msg.text.split()
 
-    user = msg.from_user
-    username = f"@{user.username}" if user.username else "без юза"
+    if len(parts) != 2 or not parts[1].isdigit():
+        return await msg.reply("❌ Формат: купить 1")
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="✅ Одобрить",
-                callback_data=f"req_yes:{user.id}:{amount}:{msg.chat.id}:{username}"
-            ),
-            InlineKeyboardButton(
-                text="❌ Отклонить",
-                callback_data=f"req_no:{user.id}:{amount}:{msg.chat.id}:{username}"
-            )
-        ]
-    ])
+    stars = int(parts[1])
 
-    await bot.send_message(
-        ADMIN_ID,
-        f"💸 Запрос средств\n\n"
-        f"👤 Юзер: {username}\n"
-        f"🆔 ID: {user.id}\n"
-        f"💰 Сумма: {fmt(amount)} {CURRENCY}\n"
-        f"📝 Причина: {reason}",
-        reply_markup=kb
+    if stars <= 0:
+        return await msg.reply("❌ Минимум 1 ⭐")
+
+    if stars > 10000:
+        return await msg.reply("❌ Если сумма больше 10.000 обратитесь в @kplay_support")
+
+    amount_currency = stars * 500
+
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Купить", callback_data=f"buy_yes:{stars}")
+    kb.button(text="❌ Отмена", callback_data="buy_no")
+    kb.adjust(2)
+
+    await msg.reply(
+        f"💳 Покупка валюты\n\n"
+        f"⭐ Звёзды: {stars}\n"
+        f"💰 Получите: {amount_currency:,} {CURRENCY}\n"
+        f"📈 Курс: 1 ⭐ = 500 {CURRENCY}",
+        reply_markup=kb.as_markup()
     )
-
-    if amount <=0:
-     return await msg.reply("❌ Сумма должна быть больше 0")
-     
-    await msg.reply("📨 Запрос отправлен админу")
-
     
-@dp.callback_query(lambda c: c.data.startswith("req_yes"))
-async def approve_request(call: types.CallbackQuery):
-    _, uid, amount, chat_id, username = call.data.split(":")
-    uid = int(uid)
-    amount = int(amount)
-    chat_id = int(chat_id)
+@dp.callback_query(lambda c: c.data.startswith("buy_yes"))
+async def buy_confirm(call: types.CallbackQuery):
+    stars = int(call.data.split(":")[1])
 
-    add_user(uid)
-    add_balance(uid, amount)
+    await call.message.delete()
 
-    await call.message.edit_text("✅ Запрос одобрен")
-
-
-    await bot.send_message(
-    chat_id,
-    f"{username}, ваш запрос на {fmt(amount)} {CURRENCY} одобрен ✅"
-)
+    await bot.send_invoice(
+        chat_id=call.from_user.id,
+        title="💰 Покупка валюты",
+        description=f"{stars} ⭐ → {stars * 500} {CURRENCY}",
+        payload=f"buy_{stars}",
+        provider_token="",
+        currency="XTR",
+        prices=[LabeledPrice(label="Покупка валюты", amount=stars)],
+    )
     
-@dp.callback_query(lambda c: c.data.startswith("req_no"))
-async def decline_request(call: types.CallbackQuery):
-    _, uid, amount, chat_id, username = call.data.split(":")
-    amount = int(amount)
-    chat_id = int(chat_id)
+@dp.callback_query(lambda c: c.data == "buy_no")
+async def buy_cancel(call: types.CallbackQuery):
+    await call.message.edit_text("❌ Покупка отменена")
+    
+@dp.pre_checkout_query()
+async def pre_checkout(pre_checkout_query: types.PreCheckoutQuery):
+    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
 
-    await call.message.edit_text("❌ Запрос отклонён")
 
-    await bot.send_message(
-    chat_id,
-    f"{username}, ваш запрос на {fmt(amount)} {CURRENCY} отклонён ❌"
-)
+@dp.message(lambda m: m.successful_payment)
+async def successful_payment(msg: types.Message):
+    payload = msg.successful_payment.invoice_payload
+
+    if payload.startswith("buy_"):
+        stars = int(payload.split("_")[1])
+        currency_amount = stars * 500
+
+        add_balance(msg.from_user.id, currency_amount)
+
+        await msg.answer(
+            f"✅ Оплата прошла успешно!\n\n"
+            f"💰 Вам начислено: {currency_amount:,} {CURRENCY}\n"
+            f"Спасибо за покупку ⭐"
+        )
 
 # -------------------- 50/50 -------------------------
 
@@ -468,18 +494,22 @@ async def miner_click(call: types.CallbackQuery):
         return
 
     idx = int(action)
-    
-    # защита от двойного клика
+
     if idx in game["open"]:
         return
-    
+
     if idx in game["mines"]:
         del miners[owner]
         await call.message.edit_text("💥 БАХ!")
         return
 
     game["open"].add(idx)
-    game["mult"] += 0.2
+
+    # 🎲 Новый баланс множителя
+    if random.random() < 0.6:
+        game["mult"] += 0.1
+    else:
+        game["mult"] += 0.2
 
     kb = InlineKeyboardBuilder()
     for i in range(25):
@@ -487,6 +517,7 @@ async def miner_click(call: types.CallbackQuery):
             kb.button(text="🟩", callback_data="x")
         else:
             kb.button(text="⬜", callback_data=f"s_{i}_{owner}")
+
     kb.button(text="💰 Забрать", callback_data=f"s_cash_{owner}")
     kb.adjust(5)
 
@@ -629,10 +660,9 @@ async def card_click(call: types.CallbackQuery):
 ])
 async def show_top(msg: types.Message):
     rows = cur.execute(
-        "SELECT user_id, balance FROM balances "
-        "WHERE user_id != ? ORDER BY balance DESC LIMIT 10",
-        (OWNER_ID,)
-    ).fetchall()
+    "SELECT user_id, balance FROM balances WHERE user_id NOT IN (?, ?) AND balance > 0 ORDER BY balance DESC LIMIT 10",
+    (OWNER_ID, SUPPORT_ID)
+).fetchall()
 
     if not rows:
         return await msg.reply("🏆 Топ пуст")
@@ -779,6 +809,8 @@ async def transfer(msg: types.Message):
 
     sender = msg.from_user
     receiver = msg.reply_to_message.from_user
+    if receiver.id == OWNER_ID:
+        return await msg.reply("❌ Админу переводить нельзя")
     amount = int(text[1])
 
     if receiver.is_bot:
