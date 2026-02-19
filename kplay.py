@@ -65,6 +65,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandObject
 from aiogram import F
 
+
 TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = 5338814259
 SUPPORT_ID = 7931101383
