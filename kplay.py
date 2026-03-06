@@ -5,19 +5,13 @@ import random
 import os
 import re
 
+OWNER_ID = 5338814259
+
 def fmt(n: int) -> str:
-    return f"{n:,}".replace(",", ".")
+    return f"{n:,}".replace(",", " ")
 
-db = sqlite3.connect("balances.db")
+db = sqlite3.connect("balances.db", check_same_thread=False)
 cur = db.cursor()
-
-cur.execute("""
-CREATE TABLE IF NOT EXISTS balances (
-    user_id INTEGER PRIMARY KEY,
-    balance INTEGER NOT NULL
-)
-""")
-db.commit()
 
 cur.execute("""
 CREATE TABLE IF NOT EXISTS untop (
@@ -33,19 +27,24 @@ CREATE TABLE IF NOT EXISTS chats (
 """)
 db.commit()
 
-import sqlite3
-
-conn = sqlite3.connect("database.db")
-cursor = conn.cursor()
-
-cursor.execute("""
+cur.execute("""
 CREATE TABLE IF NOT EXISTS users (
-    uid INTEGER PRIMARY KEY,
+    user_id INTEGER PRIMARY KEY,
     balance INTEGER DEFAULT 0
 )
 """)
+db.commit()
 
-conn.commit()
+cur.execute("""
+CREATE TABLE IF NOT EXISTS inventory (
+    user_id INTEGER,
+    item TEXT,
+    amount INTEGER,
+    PRIMARY KEY (user_id, item)
+)
+""")
+db.commit()
+
 
 import sqlite3
 import time
@@ -67,7 +66,6 @@ from aiogram import F
 
 
 TOKEN = os.getenv("BOT_TOKEN")
-OWNER_ID = 5338814259
 SUPPORT_ID = 7931101383
 
 LOG_FILE = "logs.txt"
@@ -95,7 +93,7 @@ from aiogram.types import ReplyKeyboardRemove
 @dp.message(CommandStart())
 async def start(message: types.Message, command: CommandObject):
     uid = message.from_user.id
-    add_user(uid)
+    add_user_file(uid)
 
     me = await bot.me()
 
@@ -123,18 +121,23 @@ async def start(message: types.Message, command: CommandObject):
         [
             InlineKeyboardButton(
                 text="📜 Все команды",
-                url="https://t.me/kplaybase/26"
+                url="https://t.me/kplaybase/26",
             )
         ]
     ])
+        
+    await message.answer(
+    "Установка меню",
+    reply_markup=main_menu()
+)
 
     await message.answer(
-        "👋 Привет, я Kplay - бот для игр 🎮\n\n"
-        "👑 Поддержка:\n"
+        '<tg-emoji emoji-id="5251694694525586163">✋</tg-emoji> Привет, я Kplay - бот для игр\n\n'
+        '<tg-emoji emoji-id="5443038326535759644">💬</tg-emoji> Поддержка:\n'
         "@Kplay_support\n\n"
-        "📜 Команды:\n"
-        "• Б / баланс — баланс\n"
-        "• Бонус — бонус (12ч)\n"
+        '<tg-emoji emoji-id="5197269100878907942">✍️</tg-emoji> Команды:\n'
+        "• Б / баланс\n"
+        "• Бонус (12ч)\n"
         "• 100 красное / красное 100\n"
         "• 100 черное / черное 100\n"
         "• 100 орел / орел 100\n"
@@ -149,10 +152,12 @@ async def start(message: types.Message, command: CommandObject):
         "• Купить (сумма сколько хотите потратить звезд на покупку валюты)\n"
         "• Промокод / промо (название промокода)\n"
         "• Факт / интересное\n"
-        "• Скажи (текст)\n\n"
-        "Канал @kplaynews",
-        reply_markup=kb
-    )
+        "• Скажи (текст)\n"
+        "• -Соо, -смс, удалить (ответом на соо которое хотите удалить)\n\n"
+        '<tg-emoji emoji-id="5244837092042750681">📈</tg-emoji> Курс: 1 <tg-emoji emoji-id="5438496463044752972">⭐️</tg-emoji> = 1000 playks\n\n'
+        '<tg-emoji emoji-id="5305699699204837855">🍀</tg-emoji> Удачной игры!',
+        reply_markup=kb,
+        parse_mode="HTML")
 
 # ---------- ЛОГ ----------
 
@@ -162,7 +167,7 @@ def log(text):
 
 # ---------- USERS ----------
 
-def add_user(uid):
+def add_user_file(uid):
     uid = str(uid)
     if not os.path.exists(USERS_FILE):
         with open(USERS_FILE, "w") as f:
@@ -184,9 +189,9 @@ def get_all_users():
 
 #--------------- КД ------------
 
-SPAM_LIMIT = 4        # сообщений
-SPAM_INTERVAL = 5    # секунд
-SPAM_MUTE = 2        # секунд
+SPAM_LIMIT = 10        # сообщений
+SPAM_INTERVAL = 10    # секунд
+SPAM_MUTE = 10        # секунд
 
 user_messages = defaultdict(lambda: deque())
 user_muted_until = {}
@@ -202,7 +207,7 @@ class AntiSpamMiddleware(BaseMiddleware):
         now = time.time()
 
         if uid in user_muted_until and user_muted_until[uid] > now:
-            return  # ❗ тихо блокируем, но НЕ жрём хендлеры
+            return
 
         q = user_messages[uid]
         while q and now - q[0] > SPAM_INTERVAL:
@@ -223,34 +228,23 @@ dp.message.middleware(AntiSpamMiddleware())
 
 import sqlite3
 
-conn = sqlite3.connect("database.db")
-cursor = conn.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    user_id INTEGER PRIMARY KEY,
-    balance INTEGER DEFAULT 0
-)
-""")
-conn.commit()
-
-
 def add_user(user_id: int):
-    cursor.execute(
+
+    cur.execute(
         "INSERT OR IGNORE INTO users (user_id) VALUES (?)",
         (user_id,)
     )
-    conn.commit()
 
+    db.commit()
 
 def get_balance(user_id: int) -> int:
     add_user(user_id)
 
-    cursor.execute(
+    cur.execute(
         "SELECT balance FROM users WHERE user_id = ?",
         (user_id,)
     )
-    result = cursor.fetchone()
+    result = cur.fetchone()
 
     return result[0] if result else 0
 
@@ -258,18 +252,19 @@ def get_balance(user_id: int) -> int:
 def add_balance(user_id: int, amount: int):
     add_user(user_id)
 
-    cursor.execute(
+    cur.execute(
         "UPDATE users SET balance = balance + ? WHERE user_id = ?",
         (amount, user_id)
     )
-    conn.commit()
+    db.commit()
 
 
-@dp.message(lambda m: m.text and m.text.lower() in ["б", "баланс", "/b", "/bal", "/balance", "балик", "бал"])
+@dp.message(lambda m: m.text and m.text.lower() in ["б", "баланс", "/b", "/balance", "балик",])
 async def balance_cmd(msg: types.Message):
     user_id = msg.from_user.id
     bal = get_balance(user_id)
-    await msg.reply(f"💰 Баланс: {fmt(bal)} {CURRENCY}")
+    await msg.reply(f'<tg-emoji emoji-id="5287231198098117669">💰</tg-emoji> Баланс: {fmt(bal)} {CURRENCY}',
+        parse_mode="HTML")
     
 # ---------- БОНУС ----------
 
@@ -284,13 +279,15 @@ async def bonus(msg: types.Message):
         wait = BONUS_TIME - (now - last)
         h = wait // 3600
         m = (wait % 3600) // 60
-        await msg.reply(f"⏳ Бонус через {h}ч {m}м")
+        await msg.reply(f'<tg-emoji emoji-id="5382194935057372936">⏱</tg-emoji> Бонус через {h}ч {m}м',
+        parse_mode="HTML")
         return
 
     bonus_cd[uid] = now
     add_balance(uid, 3000)
     bal = get_balance(uid)
-    await msg.reply(f"🎁 +3000 {CURRENCY}")
+    await msg.reply(f'<tg-emoji emoji-id="5332455502917949981">🏦</tg-emoji> +3000 {CURRENCY}',
+        parse_mode="HTML")
 
 #-------------------- СМАЙЛЫ ЛУДКИ -----------
 
@@ -318,15 +315,19 @@ async def cmd_piu(msg: types.Message):
 @dp.message(lambda m: m.text and m.text.lower() == "пинг")
 async def cmd_ping(msg: types.Message):
     await msg.reply("Понг")
-
-@dp.message(lambda m: m.text and m.text.lower() == "до")
-async def cmd_do(msg: types.Message):
-    await msg.reply("Дооооо")
     
 @dp.message(lambda m: m.text and m.text.lower() == "бот")
 async def cmd_botik(msg: types.Message):
-    await msg.reply("Я тут")
-
+    await msg.reply('Я тут <tg-emoji emoji-id="5206607081334906820">✔️</tg-emoji>',
+    parse_mode="HTML")
+    
+@dp.message(lambda m: m.text and m.text.lower() == "поддержка")
+async def support_handler(msg: types.Message):
+    """Работает с любым регистром"""
+    await msg.reply(
+        '<tg-emoji emoji-id="5443038326535759644">💬</tg-emoji> По вопросам писать @kplay_support',
+        parse_mode="HTML")
+    
 #------------- ПОКУПКА ВАЛЮТЫ -------------
 
 from aiogram.types import LabeledPrice
@@ -338,17 +339,20 @@ async def buy_currency(msg: types.Message):
     parts = msg.text.split()
 
     if len(parts) != 2 or not parts[1].isdigit():
-        return await msg.reply("❌ Формат: купить 1")
+        return await msg.reply(f'<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Формат: купить 1',
+        parse_mode="HTML")
 
     stars = int(parts[1])
 
     if stars <= 0:
-        return await msg.reply("❌ Минимум 1 ⭐")
+        return await msg.reply(f'<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Минимум 1 <tg-emoji emoji-id="5438496463044752972">⭐️</tg-emoji>',
+        parse_mode="HTML")
 
-    if stars > 10000:
-        return await msg.reply("❌ Если сумма больше 10.000 обратитесь в @kplay_support")
+    if stars > 20000:
+        return await msg.reply(f'<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Если сумма больше 20.000 обратитесь в @kplay_support',
+        parse_mode="HTML")
 
-    amount_currency = stars * 500
+    amount_currency = stars * 1000
 
     kb = InlineKeyboardBuilder()
     kb.button(text="✅ Купить", callback_data=f"buy_yes:{stars}")
@@ -356,11 +360,12 @@ async def buy_currency(msg: types.Message):
     kb.adjust(2)
 
     await msg.reply(
-        f"💳 Покупка валюты\n\n"
-        f"⭐ Звёзды: {stars}\n"
-        f"💰 Получите: {amount_currency:,} {CURRENCY}\n"
-        f"📈 Курс: 1 ⭐ = 500 {CURRENCY}",
-        reply_markup=kb.as_markup()
+        f'<tg-emoji emoji-id="5402186569006210455">💱</tg-emoji> Покупка валюты\n\n'
+        f'<tg-emoji emoji-id="5438496463044752972">⭐️</tg-emoji> Звёзды: {stars}\n'
+        f'<tg-emoji emoji-id="5332455502917949981">🏦</tg-emoji> Получите: {amount_currency:,} {CURRENCY}\n'
+        f'<tg-emoji emoji-id="5244837092042750681">📈</tg-emoji> Курс: 1 <tg-emoji emoji-id="5438496463044752972">⭐️</tg-emoji> = 1000 {CURRENCY}',
+        reply_markup=kb.as_markup(),
+        parse_mode="HTML"
     )
     
 @dp.callback_query(lambda c: c.data.startswith("buy_yes"))
@@ -372,7 +377,7 @@ async def buy_confirm(call: types.CallbackQuery):
     await bot.send_invoice(
         chat_id=call.from_user.id,
         title="💰 Покупка валюты",
-        description=f"{stars} ⭐ → {stars * 500} {CURRENCY}",
+        description=f"{stars} ⭐ → {stars * 1000} {CURRENCY}",
         payload=f"buy_{stars}",
         provider_token="",
         currency="XTR",
@@ -381,7 +386,8 @@ async def buy_confirm(call: types.CallbackQuery):
     
 @dp.callback_query(lambda c: c.data == "buy_no")
 async def buy_cancel(call: types.CallbackQuery):
-    await call.message.edit_text("❌ Покупка отменена")
+    await call.message.edit_text('<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Покупка отменена',
+    parse_mode="HTML")
     
 @dp.pre_checkout_query()
 async def pre_checkout(pre_checkout_query: types.PreCheckoutQuery):
@@ -394,29 +400,19 @@ async def successful_payment(msg: types.Message):
 
     if payload.startswith("buy_"):
         stars = int(payload.split("_")[1])
-        currency_amount = stars * 500
+        currency_amount = stars * 1000
 
         add_balance(msg.from_user.id, currency_amount)
 
         await msg.answer(
-            f"✅ Оплата прошла успешно!\n\n"
-            f"💰 Вам начислено: {currency_amount:,} {CURRENCY}\n"
-            f"Спасибо за покупку ⭐"
-        )
+            f'<tg-emoji emoji-id="5278745506657370417">🎉</tg-emoji> Оплата прошла успешно!\n\n'
+            f'<tg-emoji emoji-id="5332455502917949981">🏦</tg-emoji> Вам начислено: {currency_amount:,} {CURRENCY}\n'
+            f"Спасибо за покупку!",
+            parse_mode="HTML")
 
-# -------- ПРОМОКОДЫ --------
+#--------------- ПРОМОКОДЫ -----------
 
-import sqlite3
-import time
-from datetime import datetime
-from aiogram import F, types
-
-conn = sqlite3.connect("database.db")
-cursor = conn.cursor()
-
-# ===== таблицы =====
-
-cursor.execute("""
+cur.execute("""
 CREATE TABLE IF NOT EXISTS promocodes (
     name TEXT PRIMARY KEY,
     amount INTEGER,
@@ -425,55 +421,26 @@ CREATE TABLE IF NOT EXISTS promocodes (
 )
 """)
 
-cursor.execute("""
+cur.execute("""
 CREATE TABLE IF NOT EXISTS promo_used (
     user_id INTEGER,
     promo_name TEXT,
     PRIMARY KEY (user_id, promo_name)
 )
 """)
-
-conn.commit()
-
-
-# ===== очистка мёртвых =====
-
-def cleanup_promos():
-
-    cursor.execute("""
-        DELETE FROM promocodes
-        WHERE uses_left IS NOT NULL AND uses_left <= 0
-    """)
-
-    conn.commit()
-
-
-# ===== создать =====
+db.commit()
 
 def create_promo(name, amount, uses):
 
-    cleanup_promos()
-
-    cursor.execute("""
-        INSERT OR REPLACE INTO promocodes
+    cur.execute("""
+        INSERT OR REPLACE INTO promocodes 
         (name, amount, uses_left, expires_at)
         VALUES (?, ?, ?, NULL)
-    """,(name.lower(), amount, uses))
-
-    # очищаем старые использования
-    cursor.execute("""
-        DELETE FROM promo_used
-        WHERE promo_name = ?
-    """,(name.lower(),))
-
-    conn.commit()
-
-
-# ===== +ПРОМО =====
+    """, (name.lower(), amount, uses))
+    db.commit()
 
 @dp.message(F.text.startswith("+промо"))
 async def add_promo(message: types.Message):
-
     if message.from_user.id != OWNER_ID:
         return
 
@@ -488,83 +455,68 @@ async def add_promo(message: types.Message):
 
     _, name, amount_str, uses_str = args
 
+    # проверка суммы
     try:
         amount = int(amount_str)
+    except:
+        await message.reply("❌ Сумма должна быть числом")
+        return
+
+    # проверка количества
+    try:
         uses = int(uses_str)
     except:
-        await message.reply("❌ Сумма и количество должны быть числами")
+        await message.reply("❌ Количество должно быть числом")
         return
 
     if uses <= 0:
-        await message.reply("❌ Количество > 0")
+        await message.reply("❌ Количество должно быть больше 0")
         return
 
     create_promo(name, amount, uses)
 
     await message.reply(
         f"✅ Промокод {name} создан\n"
-        f"💰 {amount} playks\n"
-        f"📦 {uses} активаций"
+        f"💰 Сумма: {amount}\n"
+        f"📦 Активаций: {uses}"
     )
-
-
-# ===== -ПРОМО =====
-
+        
 @dp.message(F.text.startswith("-промо"))
 async def delete_promo(message: types.Message):
-
     if message.from_user.id != OWNER_ID:
         return
 
     try:
         _, name = message.text.split()
         name = name.lower()
+
+        cur.execute("SELECT name FROM promocodes WHERE name=?", (name,))
+        promo = cur.fetchone()
+
+        if not promo:
+            await message.reply("❌ Промокод не найден")
+            return
+
+        # удаляем промокод
+        cur.execute("DELETE FROM promocodes WHERE name=?", (name,))
+
+        # очищаем использование
+        cur.execute("DELETE FROM promo_used WHERE promo_name=?", (name,))
+
+        db.commit()
+
+        await message.reply(f"🗑 Промокод {name} удалён")
+
     except:
         await message.reply("❌ Формат: -промо название")
-        return
 
-    cursor.execute(
-        "SELECT name FROM promocodes WHERE name=?",
-        (name,)
-    )
-
-    if not cursor.fetchone():
-        await message.reply("❌ Промокод не найден")
-        return
-
-    # удаляем промо
-    cursor.execute(
-        "DELETE FROM promocodes WHERE name=?",
-        (name,)
-    )
-
-    # чистим использования
-    cursor.execute(
-        "DELETE FROM promo_used WHERE promo_name=?",
-        (name,)
-    )
-
-    conn.commit()
-
-    await message.reply(f"🗑 Промокод {name} удалён")
-
-
-# ===== СПИСОК =====
-
-@dp.message(F.text.lower().in_(["промокоды","промы"]))
+@dp.message(F.text.lower().in_(["промокоды", "промы"]))
 async def list_promos(message: types.Message):
-
     if message.from_user.id != OWNER_ID:
         return
 
-    cleanup_promos()
-
-    cursor.execute("""
-        SELECT name, uses_left, expires_at
-        FROM promocodes
-    """)
-
-    promos = cursor.fetchall()
+    cur.execute("SELECT name, amount, uses_left, expires_at FROM promocodes")
+    promos = cur.fetchall()
 
     if not promos:
         await message.reply("❌ Промокодов нет")
@@ -572,98 +524,84 @@ async def list_promos(message: types.Message):
 
     text = "📋 Список промокодов:\n\n"
 
-    for name, uses_left, expires_at in promos:
-
+    for name, amount, uses_left, expires_at in promos:
+        # Если есть лимит использований
         if uses_left is not None:
-
-            text += f"{name} | {uses_left} активаций\n"
-
-        elif expires_at:
-
+            text += f"{name} | {amount} {CURRENCY} | {uses_left} активаций\n"
+        # Если есть дата окончания
+        elif expires_at is not None:
             dt = datetime.fromtimestamp(expires_at)
-
-            text += f"{name} | {dt.strftime('%d.%m.%Y %H:%M')}\n"
-
+            formatted = dt.strftime("%d.%m.%Y %H:%M")
+            text += f"{name} | даёт: {amount} | истекает: {formatted}\n"
+        # Без ограничений
         else:
+            text += f"{name} | {amount} {CURRENCY} | Без ограничений\n"
 
-            text += f"{name} | Без ограничений\n"
-
-    await message.answer(text)
-
-
-# ===== АКТИВАЦИЯ =====
-
-@dp.message(F.text.lower().startswith(("промо","промокод")))
+    await message.reply(text)
+        
+@dp.message(F.text.lower().startswith(("промо", "промокод")))
 async def activate_promo(message: types.Message):
 
-    parts = message.text.split()
-
-    if len(parts) < 2:
-        await message.reply("❌ Укажите название")
+    try:
+        parts = message.text.split()
+        name = parts[1].lower()
+    except:
+        await message.reply(
+        '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Укажите название промокода',
+        parse_mode="HTML")
         return
 
-    name = parts[1].lower()
-    uid = message.from_user.id
-
-    cleanup_promos()
-
-    cursor.execute(
-        "SELECT * FROM promocodes WHERE name=?",
-        (name,)
-    )
-
-    promo = cursor.fetchone()
+    cur.execute("SELECT * FROM promocodes WHERE name=?", (name,))
+    promo = cur.fetchone()
 
     if not promo:
-        await message.reply("❌ Промокод не найден")
+        await message.reply(
+        '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Промокод не найден',
+        parse_mode="HTML")
         return
 
     name, amount, uses_left, expires_at = promo
+    uid = message.from_user.id
 
-    # уже использовал
-    cursor.execute("""
-        SELECT 1 FROM promo_used
-        WHERE user_id=? AND promo_name=?
-    """,(uid,name))
-
-    if cursor.fetchone():
-        await message.reply("❌ Уже использовали")
-        return
-
-    # срок
-    if expires_at and int(time.time()) > expires_at:
-        await message.reply("❌ Срок истёк")
-        return
-
-    # uses
+    # проверка количества
     if uses_left is not None:
-
         if uses_left <= 0:
-
-            cleanup_promos()
-
-            await message.reply("❌ Активации закончились")
+            await message.reply(
+            '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Лимит активаций исчерпан',
+            parse_mode="HTML")
             return
 
-        cursor.execute("""
-            UPDATE promocodes
-            SET uses_left = uses_left - 1
-            WHERE name=?
-        """,(name,))
+    # проверка использовал ли
+    cur.execute(
+        "SELECT * FROM promo_used WHERE user_id=? AND promo_name=?",
+        (uid, name)
+    )
 
-    # баланс
+    if cur.fetchone():
+        await message.reply(
+        '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Вы уже использовали этот промокод',
+        parse_mode="HTML")
+        return
+
+    # списываем активацию
+    if uses_left is not None:
+        cur.execute(
+            "UPDATE promocodes SET uses_left = uses_left - 1 WHERE name=?",
+            (name,)
+        )
+
     add_balance(uid, amount)
 
-    cursor.execute("""
-        INSERT INTO promo_used
-        VALUES (?,?)
-    """,(uid,name))
+    cur.execute(
+        "INSERT INTO promo_used VALUES (?, ?)",
+        (uid, name)
+    )
 
-    conn.commit()
+    db.commit()
 
     await message.reply(
-        f"🎉 Промокод активирован!\n+{amount} playks"
-    )
+    f'<tg-emoji emoji-id="5332455502917949981">🏦</tg-emoji> Промокод активирован!\n+{amount} playks',
+    parse_mode="HTML")
    
 #--------------- ФАКТЫ --------------
 
@@ -672,7 +610,7 @@ from aiogram import F, types
 
 facts = [
     "У осьминогов три сердца.",
-    "Бананы — это ягоды, а клубника — нет.",
+    "Бананы это ягоды, а клубника нет.",
     "Мёд никогда не портится.",
     "Акулы существуют дольше, чем деревья.",
     "В космосе нет звука.",
@@ -689,11 +627,11 @@ facts = [
     "Дельфины называют друг друга по именам.",
     "Молния горячее поверхности Солнца.",
     "У человека около 37 триллионов клеток.",
-    "Летучие мыши — единственные летающие млекопитающие.",
+    "Летучие мыши единственные летающие млекопитающие.",
     "Улитки могут спать до трёх лет.",
     "Вода может кипеть и замерзать одновременно.",
     "У жирафа столько же шейных позвонков, сколько у человека.",
-    "Луна удаляется от Земли примерно на 3–4 см в год.",
+    "Луна удаляется от Земли примерно на 3-4 см в год.",
     "Пингвины делают предложения, даря камешки.",
     "Сахара когда-то была зелёной.",
     "У медуз нет мозга.",
@@ -705,9 +643,9 @@ facts = [
     "Океаны покрывают более 70% поверхности Земли.",
     "В теле человека 206 костей.",
     "Страусы могут бежать до 70 км/ч.",
-    "У акул нет костей — только хрящи.",
+    "У акул нет костей, только хрящи.",
     "Земля не идеально круглая.",
-    "Самый большой живой организм — гриб в США.",
+    "Самый большой живой организм - гриб в США.",
     "В организме человека больше бактерий, чем клеток.",
     "Человеческий нос может запомнить тысячи запахов.",
     "Некоторые черепахи могут дышать через клоаку.",
@@ -716,13 +654,13 @@ facts = [
     "В космосе есть облака из спирта.",
     "У совы глаза не вращаются.",
     "Киты могут общаться на огромных расстояниях.",
-    "В радуге нет отдельного фиолетового слоя — это смесь цветов.",
+    "В радуге нет отдельного фиолетового слоя, это смесь цветов.",
     "На Юпитере возможны алмазные дожди (по теории).",
-    "Самая высокая гора от основания — Мауна-Кеа.",
+    "Самая высокая гора от основания - Мауна-Кеа.",
     "Гора Эверест растёт каждый год.",
     "В космосе есть планеты со стеклянным дождём.",
     "Человек светится в темноте, но слишком слабо, чтобы это увидеть.",
-    "Самая высокая зафиксированная температура на Земле — выше 56°C.",
+    "Самая высокая зафиксированная температура на Земле - выше 56°C.",
     "В мире больше деревьев, чем звёзд в Млечном Пути (оценочно).",
     "В космосе существуют гигантские водные резервуары.",
     "Акулы чувствуют электрические поля.",
@@ -730,13 +668,14 @@ facts = [
     "Некоторые виды бамбука растут до метра в день.",
     "У коров есть лучшие друзья.",
     "Лимоны содержат больше сахара, чем клубника.",
-    "Планета Уран вращается «на боку»."
+    "Планета Уран вращается на боку."
 ]
 
 @dp.message(F.text.lower().in_(["факт", "интересное"]))
 async def random_fact(message: types.Message):
     fact = random.choice(facts)
-    await message.answer(f"🧠 Интересный факт:\n\n{fact}")
+    await message.reply(f'<tg-emoji emoji-id="5436113877181941026">❓</tg-emoji> Интересный факт\n\n{fact}',
+    parse_mode="HTML")
   
 #---------------- СКАЖИ -----------------
 
@@ -760,6 +699,63 @@ async def say_command(message: types.Message):
 
     await message.reply(reply_text)
 
+#------------- МОДЕРАЦИЯ -----------
+
+#----- удаление соо -----
+
+@dp.message(lambda m: m.text and m.text.lower() in ["удалить", "-соо", "-смс", "/delete", "/del", "delete"])
+async def admin_delete(msg: types.Message):
+
+    # только в группах
+    if msg.chat.type not in ["group", "supergroup"]:
+        return
+
+    # только ответом
+    if not msg.reply_to_message:
+        return
+
+    try:
+        # проверяем админ ли
+        member = await bot.get_chat_member(
+            msg.chat.id,
+            msg.from_user.id
+        )
+
+        if member.status not in ["administrator", "creator"]:
+            return
+
+        # удаляем сообщение на которое ответили
+        await bot.delete_message(
+            msg.chat.id,
+            msg.reply_to_message.message_id
+        )
+
+        # удаляем саму команду
+        await bot.delete_message(
+            msg.chat.id,
+            msg.message_id
+        )
+
+    except Exception as e:
+        print("delete error:", e)
+        
+# -------- ОБНУЛЕНИЕ --------
+
+@dp.message(lambda m: m.text and m.text.lower() in ["обнуление","/wipe"])
+async def wipe_balances(msg: types.Message):
+
+    if msg.from_user.id != OWNER_ID:
+        return
+
+    cur.execute(
+    "UPDATE users SET balance = 0 WHERE user_id NOT IN (?, ?)",
+    (OWNER_ID, SUPPORT_ID)
+)
+
+    await msg.reply(
+        "Все балансы обнулены."
+    )
+    
 # -------------------- 50/50 -------------------------
 
 @dp.message(
@@ -785,7 +781,8 @@ async def game_5050(msg: types.Message):
     add_user(uid)
 
     if get_balance(uid) < bet:
-        return await msg.reply("❌ Недостаточно средств")
+        return await msg.reply('<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Недостаточно средств',
+        parse_mode="HTML")
 
     # ---------- МОНЕТКА ----------
     if choice in coin_choices:
@@ -795,9 +792,11 @@ async def game_5050(msg: types.Message):
         if choice == result:
             win = bet * 2
             add_balance(uid, win)
-            await msg.reply(f"🪙 Выпало: {result}\n🎉 +{fmt(win)} {CURRENCY}")
+            await msg.reply(f'<tg-emoji emoji-id="5199552030615558774">🪙</tg-emoji> Выпало: {result}\n<tg-emoji emoji-id="5278745506657370417">🎉</tg-emoji> +{fmt(win)} {CURRENCY}',
+            parse_mode="HTML")
         else:
-            await msg.reply(f"🪙 Выпало: {result}\n💥 Проигрыш")
+            await msg.reply(f'<tg-emoji emoji-id="5199552030615558774">🪙</tg-emoji> Выпало: {result}\n<tg-emoji emoji-id="5276032951342088188">💥</tg-emoji> Проигрыш',
+            parse_mode="HTML")
         return
 
     # ---------- КРАСНОЕ / ЧЕРНОЕ ----------
@@ -808,9 +807,11 @@ async def game_5050(msg: types.Message):
         if choice == result:
             win = bet * 2
             add_balance(uid, win)
-            await msg.reply(f"🎰 Выпало: {result}\n🎉 +{fmt(win)} {CURRENCY}")
+            await msg.reply(f'<tg-emoji emoji-id="5305699699204837855">🍀</tg-emoji> Выпало: {result}\n<tg-emoji emoji-id="5332455502917949981">🏦</tg-emoji> +{fmt(win)} {CURRENCY}',
+            parse_mode="HTML")
         else:
-            await msg.reply(f"🎰 Выпало: {result}\n💥 Проигрыш")
+            await msg.reply(f'<tg-emoji emoji-id="5305699699204837855">🍀</tg-emoji> Выпало: {result}\n<tg-emoji emoji-id="5276032951342088188">💥</tg-emoji> Проигрыш',
+            parse_mode="HTML")
         return
         
 # ---------- САПЁР ----------
@@ -818,86 +819,154 @@ async def game_5050(msg: types.Message):
 @dp.message(lambda m: m.text and re.fullmatch(r"(сапер|сапёр)\s+\d+", m.text.lower()))
 async def miner(msg: types.Message):
     add_user(msg.from_user.id)
-    bet = int(msg.text.split()[1])
+
     uid = msg.from_user.id
+    bet = int(msg.text.split()[1])
 
     if get_balance(uid) < bet:
-        await msg.reply("❌ Недостаточно средств")
+        await msg.reply(
+            '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Недостаточно средств',
+            parse_mode="HTML"
+        )
         return
 
     add_balance(uid, -bet)
 
     mines = set(random.sample(range(25), 5))
-    miners[uid] = {"bet": bet, "mult": 1.0, "mines": mines, "open": set()}
+
+    miners[uid] = {
+        "bet": bet,
+        "mult": 1.0,
+        "mines": mines,
+        "open": set(),
+        "locked": False,
+        "clicked": False
+    }
 
     kb = InlineKeyboardBuilder()
+
     for i in range(25):
-        kb.button(text="⬜", callback_data=f"s_{i}_{uid}")
-    kb.button(text="💰 Забрать", callback_data=f"s_cash_{uid}")
+        kb.button(text="❓", callback_data=f"s_{i}_{uid}")
+
+    kb.button(text="❌", callback_data="ignore")
     kb.adjust(5)
 
     await msg.reply(
-        f"💣 Сапёр\nСтавка: {bet} {CURRENCY}\nМножитель: 1.0x",
-        reply_markup=kb.as_markup()
+        f'<tg-emoji emoji-id="5386514237638067415">💣</tg-emoji> Сапёр\n'
+        f"Множитель: 1.0x\n"
+        f"{fmt(bet)} {CURRENCY}",
+        reply_markup=kb.as_markup(),
+        parse_mode="HTML"
     )
 
+
+# ===== ФИНАЛЬНОЕ ПОЛЕ =====
+def build_final_field(game):
+    kb = InlineKeyboardBuilder()
+
+    for i in range(25):
+        # показываем мины
+        if i in game["mines"]:
+            kb.button(text="💣", callback_data="ignore")
+        # всё остальное прозрачное
+        else:
+            kb.button(text=" ", callback_data="ignore")
+
+    kb.adjust(5)
+    return kb
+
+
+# ===== НАЖАТИЕ =====
 @dp.callback_query(lambda c: c.data and c.data.startswith("s_"))
 async def miner_click(call: types.CallbackQuery):
-    await call.answer()
-
-    _, action, owner = call.data.split("_")
-    owner = int(owner)
+    parts = call.data.split("_")
+    action = parts[1]
+    owner = int(parts[2])
 
     if call.from_user.id != owner:
         return
 
-    if owner not in miners:
+    game = miners.get(owner)
+    if not game:
         return
 
-    game = miners[owner]
+    if game["locked"]:
+        return
 
+    game["locked"] = True
+    await call.answer()
+
+    # ===== ЗАБРАТЬ =====
     if action == "cash":
+        if not game["clicked"]:
+            game["locked"] = False
+            return
+
         win = int(game["bet"] * game["mult"])
         add_balance(owner, win)
+
+        kb = build_final_field(game)
         del miners[owner]
-        await call.message.edit_text(f"🏆 Ты забрал приз\n+{fmt(win)} {CURRENCY}")
+
+        await call.message.edit_text(
+            f'<tg-emoji emoji-id="5332455502917949981">🏦</tg-emoji> Ты забрал приз\n'
+            f"+{fmt(win)} {CURRENCY}",
+            reply_markup=kb.as_markup(),
+            parse_mode="HTML"
+        )
         return
 
     idx = int(action)
 
-    if idx in game["open"]:
-        return
-
+    # ===== МИНА =====
     if idx in game["mines"]:
+        kb = build_final_field(game)
         del miners[owner]
-        await call.message.edit_text("💥 БАХ!")
+
+        await call.message.edit_text(
+            '<tg-emoji emoji-id="5276032951342088188">💥</tg-emoji> БАХ!',
+            reply_markup=kb.as_markup(),
+            parse_mode="HTML"
+        )
         return
 
+    # ===== УГАДАЛ =====
     game["open"].add(idx)
+    game["clicked"] = True
 
-    # 🎲 Новый баланс множителя
-    if random.random() < 0.6:
+    if random.random() < 0.5:
         game["mult"] += 0.1
     else:
         game["mult"] += 0.2
 
+    win = int(game["bet"] * game["mult"])
+
     kb = InlineKeyboardBuilder()
     for i in range(25):
         if i in game["open"]:
-            kb.button(text="🟩", callback_data="x")
+            kb.button(text=" ", callback_data="ignore")
         else:
-            kb.button(text="⬜", callback_data=f"s_{i}_{owner}")
+            kb.button(text="❓", callback_data=f"s_{i}_{owner}")
 
-    kb.button(text="💰 Забрать", callback_data=f"s_cash_{owner}")
+    if game["clicked"]:
+        kb.button(text="💰 Забрать", callback_data=f"s_cash_{owner}")
+    else:
+        kb.button(text="❌", callback_data="ignore")
+
     kb.adjust(5)
 
     await call.message.edit_text(
-        f"💣 Сапёр\nМножитель: {game['mult']:.1f}x",
-        reply_markup=kb.as_markup()
+        f'<tg-emoji emoji-id="5469913852462242978">🧨</tg-emoji> Сапёр\n'
+        f"Множитель: {game['mult']:.1f}x\n"
+        f"{fmt(win)} {CURRENCY}",
+        reply_markup=kb.as_markup(),
+        parse_mode="HTML"
     )
 
-#--------------- КАРТЫ -----------------
+    game["locked"] = False
 
+
+#--------------- КАРТЫ -----------------
 @dp.message(lambda m: m.text and re.fullmatch(r"карты\s+\d+", m.text.lower()))
 async def start_card_game(msg: types.Message):
     add_user(msg.from_user.id)
@@ -906,7 +975,10 @@ async def start_card_game(msg: types.Message):
     bet = int(msg.text.split()[1])
 
     if get_balance(uid) < bet:
-        await msg.reply("❌ Недостаточно средств")
+        await msg.reply(
+            '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Недостаточно средств',
+            parse_mode="HTML"
+        )
         return
 
     add_balance(uid, -bet)
@@ -915,113 +987,158 @@ async def start_card_game(msg: types.Message):
         "bet": bet,
         "stage": 0,
         "mult": 1.0,
-        "history": []
+        "rows": [],
+        "locked": False,
+        "clicked": False
     }
 
     kb = InlineKeyboardBuilder()
     for i in range(3):
         kb.button(text="🃏", callback_data=f"card_{i}_{uid}")
-    kb.button(text="💰 Забрать", callback_data=f"card_cash_{uid}")
-    kb.adjust(3,1)
+
+    kb.button(text="❌", callback_data="ignore")
+    kb.adjust(3, 1)
+
+    current_win = int(bet * 1.0)
 
     await msg.reply(
-        f"🃏 Партия началась \n"
+        f'<tg-emoji emoji-id="5386514237638067415">🃏</tg-emoji> Партия началась\n'
         f"Раунд: 1/5\n"
-        f"Множитель: 1.0x",
-        reply_markup=kb.as_markup()
+        f"Множитель: 1.00x\n"
+        f"{fmt(current_win)} {CURRENCY}",
+        reply_markup=kb.as_markup(),
+        parse_mode="HTML"
     )
-    
+
+
+# ===== нажатие =====
 @dp.callback_query(lambda c: c.data.startswith("card_"))
 async def card_click(call: types.CallbackQuery):
-    await call.answer()
-
     parts = call.data.split("_")
-
     action = parts[1]
     uid = int(parts[2])
 
-    # 🔒 ЗАЩИТА — ТОЛЬКО ВЛАДЕЛЕЦ ИГРЫ
     if call.from_user.id != uid:
-        await call.answer("❌ Это не твоя игра", show_alert=True)
         return
 
     game = card_games.get(uid)
     if not game:
         return
 
-    # 💰 ЗАБРАТЬ
+    if game["locked"]:
+        return
+
+    game["locked"] = True
+    await call.answer()
+
+    # ===== ЗАБРАТЬ =====
     if action == "cash":
+        if not game["clicked"]:
+            game["locked"] = False
+            return
+
         win = int(game["bet"] * game["mult"])
         add_balance(uid, win)
-        del card_games[uid]       
+
+        kb = InlineKeyboardBuilder()
+        for r in game["rows"]:
+            for x in r:
+                kb.button(text=x if x == "💀" else " ", callback_data="ignore")
+        kb.adjust(3)
+
         await call.message.edit_text(
-            f"💰 Ты забрал приз\n"
-            f"Выигрыш: {fmt(win)} {CURRENCY}"
+            f'<tg-emoji emoji-id="5332455502917949981">🏦</tg-emoji> Ты забрал приз\n'
+            f"{fmt(win)} {CURRENCY}",
+            reply_markup=kb.as_markup(),
+            parse_mode="HTML"
         )
+
+        del card_games[uid]
         return
 
+    # ===== выбор =====
     idx = int(parts[1])
-    uid = int(parts[2])
-
-    if call.from_user.id != uid:
-        return
-
-    game = card_games.get(uid)
-    if not game:
-        return
-
     death = random.randint(0, 2)
-
     row = []
-    alive = True
+
     for i in range(3):
         if i == death:
             row.append("💀")
         else:
             row.append("✅")
 
-    game["history"].append(row)
+    game["rows"].append(row)
+    game["clicked"] = True
 
+    # ===== ПРОИГРАЛ =====
     if idx == death:
-        text = "💥 Проигрыш!\n\n"
-        for r in game["history"]:
-            text += " ".join(f"[{x}]" for x in r) + "\n"
+        kb = InlineKeyboardBuilder()
+        for r in game["rows"]:
+            for x in r:
+                kb.button(text=x if x == "💀" else " ", callback_data="ignore")
+        kb.adjust(3)
 
-        await call.message.edit_text(text)
+        await call.message.edit_text(
+            '<tg-emoji emoji-id="5276032951342088188">💥</tg-emoji> Проигрыш!',
+            reply_markup=kb.as_markup(),
+            parse_mode="HTML"
+        )
+
         del card_games[uid]
         return
 
-    # ✅ ПРОШЁЛ
+    # ===== ПРОШЁЛ =====
     game["stage"] += 1
     game["mult"] *= 1.2
 
+    # ===== ПОБЕДА =====
     if game["stage"] >= 5:
         win = int(game["bet"] * game["mult"])
         add_balance(uid, win)
+
+        kb = InlineKeyboardBuilder()
+        for r in game["rows"]:
+            for x in r:
+                kb.button(text=x if x == "💀" else " ", callback_data="ignore")
+        kb.adjust(3)
+
         await call.message.edit_text(
-            f"🏆 5/5\n"
-            f"💰 Выигрыш: {win} {CURRENCY}"
+            f'<tg-emoji emoji-id="5278745506657370417">🎉</tg-emoji> 5/5\n'
+            f'<tg-emoji emoji-id="5332455502917949981">🏦</tg-emoji> {fmt(win)} {CURRENCY}',
+            reply_markup=kb.as_markup(),
+            parse_mode="HTML"
         )
+
         del card_games[uid]
         return
 
-    text = ""
-    for r in game["history"]:
-        text += " ".join(f"[{x}]" for x in r) + "\n"
-    text += "\n" + " ".join("[🃏]" for _ in range(3))
-
+    # ===== продолжаем =====
     kb = InlineKeyboardBuilder()
+    # старые ряды
+    for r in game["rows"]:
+        for x in r:
+            kb.button(text=x, callback_data="ignore")
+    # новый ряд
     for i in range(3):
         kb.button(text="🃏", callback_data=f"card_{i}_{uid}")
-    kb.button(text="💰 Забрать", callback_data=f"card_cash_{uid}")
-    kb.adjust(3,1)
+
+    if game["clicked"]:
+        kb.button(text="💰 Забрать", callback_data=f"card_cash_{uid}")
+    else:
+        kb.button(text="❌", callback_data="ignore")
+
+    kb.adjust(3, 3, 3, 3, 3, 1)
+
+    win_now = int(game["bet"] * game["mult"])
 
     await call.message.edit_text(
-        f"{text}\n\n"
-        f"Раунд: {game['stage'] + 1}/5\n"
-        f"Множитель: {game['mult']:.2f}x",
+        f"Раунд: {game['stage']+1}/5\n"
+        f"Множитель: {game['mult']:.2f}x\n"
+        f"{fmt(win_now)} {CURRENCY}",
         reply_markup=kb.as_markup()
     )
+
+    game["locked"] = False
 
 # --------------------- ТОП ------------------------
 
@@ -1029,30 +1146,44 @@ async def card_click(call: types.CallbackQuery):
     "топ", "/top", "/stat", "балансы", "/baltop"
 ])
 async def show_top(msg: types.Message):
+
     rows = cur.execute(
-    "SELECT user_id, balance FROM balances WHERE user_id NOT IN (?, ?) AND balance > 0 ORDER BY balance DESC LIMIT 10",
-    (OWNER_ID, SUPPORT_ID)
-).fetchall()
+        "SELECT user_id, balance FROM users "
+        "WHERE user_id NOT IN (?, ?) AND balance > 0 "
+        "ORDER BY balance DESC LIMIT 10",
+        (OWNER_ID, SUPPORT_ID)
+    ).fetchall()
 
     if not rows:
-        return await msg.reply("🏆 Топ пуст")
+        return await msg.reply('<tg-emoji emoji-id="5231200819986047254">📊</tg-emoji> Топ пуст',
+        parse_mode="HTML")
 
     hidden = {
-        x[0] for x in cur.execute("SELECT user_id FROM untop").fetchall()
+        x[0] for x in cur.execute(
+            "SELECT user_id FROM untop"
+        ).fetchall()
     }
 
-    text = "🏆 <b>Топ балансов</b>\n\n"
+    text = '<tg-emoji emoji-id="5231200819986047254">📊</tg-emoji> <b>Топ балансов</b>\n\n'
+    parse_mode="HTML"
 
     for i, (uid, bal) in enumerate(rows, 1):
+
         bal = fmt(bal)
 
+        # получаем имя
+        try:
+            user = await msg.bot.get_chat(uid)
+            name = user.full_name or str(uid)
+        except:
+            name = str(uid)
+
         if uid in hidden:
-            # 👁 скрыт
-            line = f"{i}. {uid} [👁] — {bal} {CURRENCY}\n"
+            line = f'{i}. {name} [<tg-emoji emoji-id="5210956306952758910">👀</tg-emoji>] — {bal} {CURRENCY}\n'
+            parse_mode="HTML"
         else:
-            # 👤 обычный
             line = (
-                f'{i}. <a href="tg://openmessage?user_id={uid}">{uid}</a> '
+                f'{i}. <a href="tg://openmessage?user_id={uid}">{name}</a> '
                 f"— {bal} {CURRENCY}\n"
             )
 
@@ -1076,7 +1207,8 @@ async def untop_cmd(msg: types.Message):
     )
     db.commit()
 
-    await msg.reply("🙈 Ты скрыт в топе\nТвой профиль больше не будет ссылкой")
+    await msg.reply('<tg-emoji emoji-id="5210956306952758910">👀</tg-emoji> Ты скрыт в топе\nТвой профиль больше не будет ссылкой',
+    parse_mode="HTML")
     
 @dp.message(lambda m: m.text and m.text.lower() in ["/backtop", "бектоп"])
 async def backtop_cmd(msg: types.Message):
@@ -1088,7 +1220,8 @@ async def backtop_cmd(msg: types.Message):
     )
     db.commit()
 
-    await msg.reply("👀 Ты снова отображаешься в топе с ссылкой на профиль")
+    await msg.reply('<tg-emoji emoji-id="5210956306952758910">👀</tg-emoji> Ты снова отображаешься в топе с ссылкой на профиль',
+    parse_mode="HTML")
     
 # ---------- ВЫДАТЬ / СНЯТЬ ----------
 
@@ -1157,142 +1290,140 @@ async def take(msg: types.Message):
         add_balance(uid, -amount)
         await msg.reply(f"🛡 Админ KPlay снял {amount} {CURRENCY} у {uid}")
 
-# ---------- ПЕРЕДАЧА (п 100) ----------
+# ---------- ПЕРЕДАЧА ----------
 
 @dp.message()
 async def transfer(msg: types.Message):
+
     if not msg.text:
         return
 
     text = msg.text.lower().split()
 
+    if not text:
+        return
+
+# ---------- ОТДАТЬ ОТВЕТОМ ----------
+
     if text[0] != "отдать":
         return
 
     if len(text) < 2 or not text[1].isdigit():
-        await msg.reply("❌ Пример: Отдать 10000 (ответом на сообщение)")
+
+        await msg.reply(
+        '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Пример: Отдать 10000 (ответом на сообщение)',
+        parse_mode="HTML")
         return
 
+
     if not msg.reply_to_message:
-        await msg.reply("❌ Используй команду ответом на сообщение")
+
+        await msg.reply(
+        '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Используй команду ответом на сообщение',
+        parse_mode="HTML")
         return
+
 
     sender = msg.from_user
     receiver = msg.reply_to_message.from_user
+
     if receiver.id == OWNER_ID:
-        return await msg.reply("❌ Админу переводить нельзя")
+        return await msg.reply(
+        '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Админу переводить нельзя',
+        parse_mode="HTML")
+
     amount = int(text[1])
 
     if receiver.is_bot:
-        await msg.reply("❌ Боту нельзя передавать валюту")
-        return
-
-    if sender.id == receiver.id:
-        await msg.reply("❌ Нельзя передать самому себе")
-        return
-
-    if amount <= 0:
-        await msg.reply("❌ Сумма должна быть больше 0")
-        return
-
-    if get_balance(sender.id) < amount:
-        await msg.reply("❌ Недостаточно средств")
-        return
-
-    # 🔹 МАЛАЯ СУММА — БЕЗ ПОДТВЕРЖДЕНИЯ
-    if amount < 10_000:
-        add_balance(sender.id, -amount)
-        add_balance(receiver.id, amount)
 
         await msg.reply(
-            f"💸 {user_label(sender)} передал {fmt(amount)} {CURRENCY} {user_label(receiver)}"
-        )
+        '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Боту нельзя передавать валюту',
+        parse_mode="HTML")
         return
 
-    # 🔹 ПОДТВЕРЖДЕНИЕ
-    tid = f"{sender.id}:{receiver.id}:{amount}"
 
-    pending_transfers[tid] = {
-        "from": sender.id,
-        "to": receiver.id,
-        "amount": amount
+    if sender.id == receiver.id:
+
+        await msg.reply(
+        '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Нельзя передать самому себе',
+        parse_mode="HTML")
+        return
+
+
+    if amount <= 0:
+
+        await msg.reply(
+        '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Сумма должна быть больше 0',
+        parse_mode="HTML")
+        return
+
+
+    if get_balance(sender.id) < amount:
+
+        await msg.reply(
+        '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Недостаточно средств',
+        parse_mode="HTML")
+        return
+
+
+# 🔹 маленький перевод
+
+    if amount < 10_000:
+
+        add_balance(sender.id,-amount)
+        add_balance(receiver.id,amount)
+
+        await msg.reply(
+            f'<tg-emoji emoji-id="5332455502917949981">🏦</tg-emoji> {user_label(sender)} передал {fmt(amount)} {CURRENCY} {user_label(receiver)}',
+            parse_mode="HTML"
+        )
+
+        return
+
+
+# ---------- ПОДТВЕРЖДЕНИЕ ----------
+
+    tid=f"{sender.id}:{receiver.id}:{amount}"
+
+    pending_transfers[tid]={
+
+        "from":sender.id,
+        "to":receiver.id,
+        "amount":amount,
+        "time": time.time()
+
     }
 
-    from_name = f"@{sender.username}" if sender.username else f"ID {sender.id}"
-    to_name = f"@{receiver.username}" if receiver.username else f"ID {receiver.id}"
+    from_name=f"@{sender.username}" if sender.username else f"ID {sender.id}"
+    to_name=f"@{receiver.username}" if receiver.username else f"ID {receiver.id}"
 
-    kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Подтвердить", callback_data=f"pay_yes:{tid}")
-    kb.button(text="❌ Отмена", callback_data=f"pay_no:{tid}")
+    kb=InlineKeyboardBuilder()
+
+    kb.button(text="✅ Подтвердить",callback_data=f"pay_yes:{tid}")
+    kb.button(text="❌ Отмена",callback_data=f"pay_no:{tid}")
+
     kb.adjust(2)
 
     await msg.reply(
-        f"⚠️ *Подтверждение операции*\n\n"
-        f"💸 Сумма: `{fmt(amount)}`\n"
-        f"👤 Отправитель: {from_name}\n"
-        f"🎯 Получатель: {to_name}\n\n"
+
+        f'<tg-emoji emoji-id="5447644880824181073">⚠️</tg-emoji> Подтверждение операции\n\n'
+        f'<tg-emoji emoji-id="5278467510604160626">💰</tg-emoji> Сумма: {fmt(amount)}\n'
+        f'<tg-emoji emoji-id="5201691993775818138">🛫</tg-emoji> Отправитель: {from_name}\n'
+        f'<tg-emoji emoji-id="5310278924616356636">🎯</tg-emoji> Получатель: {to_name}\n\n'
         f"Вы уверены?",
+
         reply_markup=kb.as_markup(),
-        parse_mode="Markdown"
+        parse_mode="HTML"
     )
-    
-@dp.callback_query(lambda c: c.data.startswith("pay_yes:"))
-async def confirm_pay(call: types.CallbackQuery):
-    tid = call.data.split(":", 1)[1]
-
-    data = pending_transfers.get(tid)
-    if not data:
-        await call.answer("❌ Операция не найдена", show_alert=True)
-        return
-
-    if call.from_user.id != data["from"]:
-        await call.answer("❌ Это не ваша операция", show_alert=True)
-        return
-
-    if get_balance(data["from"]) < data["amount"]:
-        await call.message.edit_text("❌ Недостаточно средств")
-        pending_transfers.pop(tid, None)
-        return
-
-    add_balance(data["from"], -data["amount"])
-    add_balance(data["to"], data["amount"])
-
-    pending_transfers.pop(tid, None)
-
-    await call.message.edit_text(
-        f"✅ Перевод выполнен\n"
-        f"💸 {fmt(data['amount'])}"
-    )
-
-    await call.answer()
-    
-@dp.callback_query(lambda c: c.data.startswith("pay_no:"))
-async def cancel_pay(call: types.CallbackQuery):
-    tid = call.data.split(":", 1)[1]
-
-    data = pending_transfers.get(tid)
-    if not data:
-        await call.answer("❌ Уже отменено", show_alert=True)
-        return
-
-    if call.from_user.id != data["from"]:
-        await call.answer("❌ Это не ваша операция", show_alert=True)
-        return
-
-    pending_transfers.pop(tid, None)
-
-    await call.message.edit_text("❌ Перевод отменён")
-    await call.answer()
     
 #--------------- ФИКС "алала 7" ------------
 
 import re
-from aiogram import types
 
-# все игровые команды, которые принимают ставку
 GAME_COMMANDS = {
     "карты",
     "сапер",
+    "сапёр",
     "красное",
     "черное",
     "орел",
@@ -1305,33 +1436,70 @@ def parse_bet(text: str):
 
     text = text.lower().replace("ё", "е").strip()
 
-    for cmd in GAME_COMMANDS:
-        m = re.fullmatch(rf"{cmd}\s+(\d+)", text)
-        if m:
-            return cmd, int(m.group(1))
+    m = re.fullmatch(
+        r"(карты|сапер|сапёр|красное|черное|орел|решка)\s+(\d+)",
+        text
+    )
 
-    return None, None
+    if not m:
+        return None, None
+
+    return m.group(1), int(m.group(2))
 
 
 @dp.message()
 async def universal_games(msg: types.Message):
+
     cmd, bet = parse_bet(msg.text)
 
     if not cmd:
-        return  # ❗ НЕ ИГРА — НЕ ЛОМАЕМ ДРУГИЕ КОМАНДЫ
+        return
 
     if bet <= 0:
         return await msg.reply("❌ Ставка должна быть больше 0")
 
-    # ⬇️ РАСКИДЫВАЙ ПО СВОИМ ФУНКЦИЯМ
-    if cmd == "карты":
-        await play_cards(msg, bet)
+    # 🔥 ПРОСТО ПЕРЕДАЕМ СООБЩЕНИЕ В УЖЕ ГОТОВЫЕ ХЕНДЛЕРЫ
 
-    elif cmd == "сапер":
-        await play_mines(msg, bet)
+    if cmd in ("карты",):
+        await start_card_game(msg)
+
+    elif cmd in ("сапер", "сапёр"):
+        await miner(msg)
 
     elif cmd in ("красное", "черное", "орел", "решка"):
-        await play_roulette(msg, cmd, bet)
+        await game_5050(msg)
+
+# ---------- КНОПКИ ЛС ----------
+
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+
+
+def main_menu():
+
+    return ReplyKeyboardMarkup(
+
+        keyboard=[
+
+            [
+                KeyboardButton(text="Баланс"),
+                KeyboardButton(text="Бонус")
+            ],
+
+            [
+                KeyboardButton(text="Топ"),
+                KeyboardButton(text="Антоп"),
+                KeyboardButton(text="Бектоп"),
+            ],
+
+            [
+                KeyboardButton(text="Поддержка"),
+                KeyboardButton(text="/start") 
+            ]
+
+        ],
+
+        resize_keyboard=True
+    )
 
 # ---------- ЗАПУСК ----------
 
@@ -1352,6 +1520,7 @@ async def start_web():
 
 async def main():
     log("Bot started")
+
     await start_web()
     await dp.start_polling(bot)
 
