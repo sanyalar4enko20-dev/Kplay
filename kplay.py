@@ -35,17 +35,6 @@ CREATE TABLE IF NOT EXISTS users (
 """)
 db.commit()
 
-cur.execute("""
-CREATE TABLE IF NOT EXISTS inventory (
-    user_id INTEGER,
-    item TEXT,
-    amount INTEGER,
-    PRIMARY KEY (user_id, item)
-)
-""")
-db.commit()
-
-
 import sqlite3
 import time
 
@@ -63,7 +52,7 @@ from collections import defaultdict, deque
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import CommandObject
 from aiogram import F
-
+from aiogram import BaseMiddleware
 
 TOKEN = os.getenv("BOT_TOKEN")
 SUPPORT_ID = 7931101383
@@ -92,49 +81,54 @@ from aiogram.types import ReplyKeyboardRemove
 
 @dp.message(CommandStart())
 async def start(message: types.Message, command: CommandObject):
+
     uid = message.from_user.id
     add_user_file(uid)
-
+    
     me = await bot.me()
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(
-                text="➕ Чат",
-                url=f"https://t.me/{me.username}?startgroup=true"
+                text="Добавить в чат",
+                url=f"https://t.me/{me.username}?startgroup=true",              icon_custom_emoji_id="5397916757333654639"
+            ),
+            ],
+            [
+            
+            InlineKeyboardButton(
+                text="Связь",
+                url="tg://openmessage?user_id=7931101383",           icon_custom_emoji_id="5443038326535759644"
+            ),
+            
+            InlineKeyboardButton(
+                text="База",
+                url="https://t.me/kplaybase",           icon_custom_emoji_id="5818774589714468177"
             ),
             InlineKeyboardButton(
-                text="👤 Поддержка",
-                url="tg://openmessage?user_id=7931101383"
+                text="Канал",
+                url="https://t.me/kplaynews",
+ icon_custom_emoji_id="5282843764451195532"
             )
         ],
         [
             InlineKeyboardButton(
-                text="🏢 База",
-                url="https://t.me/kplaybase"
-            ),
-            InlineKeyboardButton(
-                text="📢 Канал",
-                url="https://t.me/kplaynews"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text="📜 Все команды",
+                text="Все команды",
                 url="https://t.me/kplaybase/26",
+ icon_custom_emoji_id="5197269100878907942"
             )
         ]
     ])
-        
-    await message.answer(
-    "Установка меню",
-    reply_markup=main_menu()
-)
+
+    # показываем установку меню ТОЛЬКО в личке
+    if message.chat.type == "private":
+        await message.answer(
+            "Установка меню",
+            reply_markup=main_menu()
+        )
 
     await message.answer(
         '<tg-emoji emoji-id="5251694694525586163">✋</tg-emoji> Привет, я Kplay - бот для игр\n\n'
-        '<tg-emoji emoji-id="5443038326535759644">💬</tg-emoji> Поддержка:\n'
-        "@Kplay_support\n\n"
         '<tg-emoji emoji-id="5197269100878907942">✍️</tg-emoji> Команды:\n'
         "• Б / баланс\n"
         "• Бонус (12ч)\n"
@@ -144,20 +138,22 @@ async def start(message: types.Message, command: CommandObject):
         "• 100 решка / решка 100\n"
         "• Сапер 100\n"
         "• Карты 100\n"
+        "• Математика 100\n"
         "• Куб / кубик\n"
         "• Баскетбол / Баскет\n"
         "• Казино, казик, спин, 777, деп, рулетка, крутилка\n"
         "• Топ / балансы\n"
-        "• Антоп / бектоп (антоп убирает ссылку на твой профиль из топа)\n"
-        "• Купить (сумма сколько хотите потратить звезд на покупку валюты)\n"
-        "• Промокод / промо (название промокода)\n"
+        "• Антоп / бектоп\n"
+        "• Купить (сумма сколько хотите потратить звезд)\n"
+        "• Промокод / промо\n"
         "• Факт / интересное\n"
         "• Скажи (текст)\n"
-        "• -Соо, -смс, удалить (ответом на соо которое хотите удалить)\n\n"
+        "• -Соо, -смс, удалить\n\n"
         '<tg-emoji emoji-id="5244837092042750681">📈</tg-emoji> Курс: 1 <tg-emoji emoji-id="5438496463044752972">⭐️</tg-emoji> = 1000 playks\n\n'
         '<tg-emoji emoji-id="5305699699204837855">🍀</tg-emoji> Удачной игры!',
         reply_markup=kb,
-        parse_mode="HTML")
+        parse_mode="HTML"
+    )
 
 # ---------- ЛОГ ----------
 
@@ -339,24 +335,33 @@ async def buy_currency(msg: types.Message):
     parts = msg.text.split()
 
     if len(parts) != 2 or not parts[1].isdigit():
-        return await msg.reply(f'<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Формат: купить 1',
-        parse_mode="HTML")
+        return await msg.reply(
+            '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Формат: купить 1',
+            parse_mode="HTML"
+        )
 
     stars = int(parts[1])
 
     if stars <= 0:
-        return await msg.reply(f'<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Минимум 1 <tg-emoji emoji-id="5438496463044752972">⭐️</tg-emoji>',
-        parse_mode="HTML")
+        return await msg.reply(
+            '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Минимум 1 <tg-emoji emoji-id="5438496463044752972">⭐️</tg-emoji>',
+            parse_mode="HTML"
+        )
 
     if stars > 20000:
-        return await msg.reply(f'<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Если сумма больше 20.000 обратитесь в @kplay_support',
-        parse_mode="HTML")
+        return await msg.reply(
+            '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Если сумма больше 20.000 обратитесь в @kplay_support',
+            parse_mode="HTML"
+        )
 
     amount_currency = stars * 1000
+    uid = msg.from_user.id
 
     kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Купить", callback_data=f"buy_yes:{stars}")
-    kb.button(text="❌ Отмена", callback_data="buy_no")
+    kb.button(text="✅ Купить", callback_data=f"buy_yes:{uid}:{stars}",
+    style="success")
+    kb.button(text="❌ Отмена", callback_data=f"buy_no:{uid}",
+    style="danger")
     kb.adjust(2)
 
     await msg.reply(
@@ -367,15 +372,31 @@ async def buy_currency(msg: types.Message):
         reply_markup=kb.as_markup(),
         parse_mode="HTML"
     )
-    
-@dp.callback_query(lambda c: c.data.startswith("buy_yes"))
+
+
+# ---------- ПОДТВЕРЖДЕНИЕ ПОКУПКИ ----------
+
+@dp.callback_query(lambda c: c.data.startswith("buy_yes:"))
 async def buy_confirm(call: types.CallbackQuery):
-    stars = int(call.data.split(":")[1])
+
+    parts = call.data.split(":")
+
+    if len(parts) != 3:
+        await call.answer("Кнопка устарела", show_alert=True)
+        return
+
+    _, uid, stars = parts
+    uid = int(uid)
+    stars = int(stars)
+
+    if call.from_user.id != uid:
+        await call.answer("Это не ваша покупка", show_alert=True)
+        return
 
     await call.message.delete()
 
     await bot.send_invoice(
-        chat_id=call.from_user.id,
+        chat_id=uid,
         title="💰 Покупка валюты",
         description=f"{stars} ⭐ → {stars * 1000} {CURRENCY}",
         payload=f"buy_{stars}",
@@ -383,22 +404,48 @@ async def buy_confirm(call: types.CallbackQuery):
         currency="XTR",
         prices=[LabeledPrice(label="Покупка валюты", amount=stars)],
     )
-    
-@dp.callback_query(lambda c: c.data == "buy_no")
+
+
+# ---------- ОТМЕНА ----------
+
+@dp.callback_query(lambda c: c.data.startswith("buy_no:"))
 async def buy_cancel(call: types.CallbackQuery):
-    await call.message.edit_text('<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Покупка отменена',
-    parse_mode="HTML")
-    
+
+    parts = call.data.split(":")
+
+    if len(parts) != 2:
+        await call.answer("Кнопка устарела", show_alert=True)
+        return
+
+    _, uid = parts
+    uid = int(uid)
+
+    if call.from_user.id != uid:
+        await call.answer("Это не ваша покупка", show_alert=True)
+        return
+
+    await call.message.edit_text(
+        '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Покупка отменена',
+        parse_mode="HTML"
+    )
+
+
+# ---------- ПРОВЕРКА ОПЛАТЫ ----------
+
 @dp.pre_checkout_query()
 async def pre_checkout(pre_checkout_query: types.PreCheckoutQuery):
     await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
 
 
+# ---------- УСПЕШНАЯ ОПЛАТА ----------
+
 @dp.message(lambda m: m.successful_payment)
 async def successful_payment(msg: types.Message):
+
     payload = msg.successful_payment.invoice_payload
 
     if payload.startswith("buy_"):
+
         stars = int(payload.split("_")[1])
         currency_amount = stars * 1000
 
@@ -408,7 +455,8 @@ async def successful_payment(msg: types.Message):
             f'<tg-emoji emoji-id="5278745506657370417">🎉</tg-emoji> Оплата прошла успешно!\n\n'
             f'<tg-emoji emoji-id="5332455502917949981">🏦</tg-emoji> Вам начислено: {currency_amount:,} {CURRENCY}\n'
             f"Спасибо за покупку!",
-            parse_mode="HTML")
+            parse_mode="HTML"
+        )
 
 #--------------- ПРОМОКОДЫ -----------
 
@@ -539,7 +587,7 @@ async def list_promos(message: types.Message):
 
     await message.reply(text)
         
-@dp.message(F.text.lower().startswith(("промо", "промокод")))
+@dp.message(F.text.lower().startswith(("промо", "промокод", "/promo")))
 async def activate_promo(message: types.Message):
 
     try:
@@ -602,7 +650,7 @@ async def activate_promo(message: types.Message):
     await message.reply(
     f'<tg-emoji emoji-id="5332455502917949981">🏦</tg-emoji> Промокод активирован!\n+{amount} playks',
     parse_mode="HTML")
-   
+
 #--------------- ФАКТЫ --------------
 
 import random
@@ -738,7 +786,7 @@ async def admin_delete(msg: types.Message):
 
     except Exception as e:
         print("delete error:", e)
-        
+
 # -------- ОБНУЛЕНИЕ --------
 
 @dp.message(lambda m: m.text and m.text.lower() in ["обнуление","/wipe"])
@@ -755,7 +803,126 @@ async def wipe_balances(msg: types.Message):
     await msg.reply(
         "Все балансы обнулены."
     )
-    
+
+#------------- МАТЕМАТИКА -------------
+
+import random
+import asyncio
+
+math_games = {}
+
+def generate_example():
+
+    ops = ["+", "-", "*", "/"]
+    op = random.choice(ops)
+
+    if op == "+":
+        a = random.randint(1, 99)
+        b = random.randint(1, 99)
+        answer = a + b
+
+    elif op == "-":
+        a = random.randint(1, 99)
+        b = random.randint(1, a)
+        answer = a - b
+
+    elif op == "*":
+        a = random.randint(1, 12)
+        b = random.randint(1, 12)
+        answer = a * b
+
+    else:  # деление без остатка
+        b = random.randint(1, 12)
+        answer = random.randint(1, 12)
+        a = b * answer
+
+    return f"{a} {op} {b}", answer
+
+
+@dp.message(lambda m: m.text.lower().startswith("математика"))
+async def math_game(msg: types.Message):
+
+    parts = msg.text.split()
+
+    if len(parts) != 2:
+        return await msg.reply("Пример: математика 100")
+
+    try:
+        bet = int(parts[1])
+    except:
+        return await msg.reply('<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Ставка должна быть числом',
+        parse_mode="HTML")
+
+    uid = msg.from_user.id
+
+    if get_balance(uid) < bet:
+        return await msg.reply('<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Недостаточно денег',
+        parse_mode="HTML")
+
+    add_balance(uid, -bet)
+
+    example, answer = generate_example()
+
+    math_games[uid] = {
+        "answer": answer,
+        "bet": bet
+    }
+
+    await msg.reply(
+        f"🧠 Решите пример за 7 секунд\n\n"
+        f"{example} = ?"
+    )
+
+    await asyncio.sleep(7)
+
+    if uid in math_games:
+        del math_games[uid]
+
+        await msg.reply(
+            '<tg-emoji emoji-id="5382194935057372936">⏱</tg-emoji> Время вышло!\n'
+            f'<tg-emoji emoji-id="5276032951342088188">💥</tg-emoji> Вы проиграли {bet}',
+            parse_mode="HTML"
+        )
+
+
+@dp.message(lambda m: m.text and m.text.isdigit())
+async def math_answer(msg: types.Message):
+
+    uid = msg.from_user.id
+
+    if uid not in math_games:
+        return
+
+    if not msg.text.isdigit():
+        return
+
+    answer = int(msg.text)
+
+    game = math_games[uid]
+
+    if answer == game["answer"]:
+
+        win = game["bet"] * 2
+        add_balance(uid, win)
+
+        del math_games[uid]
+
+        await msg.reply(
+            f'<tg-emoji emoji-id="5206607081334906820">✔️</tg-emoji> Правильно!\n'
+            f'<tg-emoji emoji-id="5332455502917949981">🏦</tg-emoji> Вы выиграли {win}',
+            parse_mode="HTML"
+        )
+
+    else:
+
+        del math_games[uid]
+
+        await msg.reply(
+            f'<tg-emoji emoji-id="5276032951342088188">💥</tg-emoji> Неправильно!\n'
+            f'<tg-emoji emoji-id="5206607081334906820">✔️</tg-emoji> Правильный ответ: {game["answer"]}',
+            parse_mode="HTML"
+        )
+
 # -------------------- 50/50 -------------------------
 
 @dp.message(
@@ -783,7 +950,7 @@ async def game_5050(msg: types.Message):
     if get_balance(uid) < bet:
         return await msg.reply('<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Недостаточно средств',
         parse_mode="HTML")
-
+        
     # ---------- МОНЕТКА ----------
     if choice in coin_choices:
         add_balance(uid, -bet)
@@ -846,9 +1013,11 @@ async def miner(msg: types.Message):
     kb = InlineKeyboardBuilder()
 
     for i in range(25):
-        kb.button(text="❓", callback_data=f"s_{i}_{uid}")
+        kb.button(text="❓", callback_data=f"s_{i}_{uid}"
+        )
 
-    kb.button(text="❌", callback_data="ignore")
+    kb.button(text="❌", callback_data="ignore",
+    style="danger")
     kb.adjust(5)
 
     await msg.reply(
@@ -867,10 +1036,12 @@ def build_final_field(game):
     for i in range(25):
         # показываем мины
         if i in game["mines"]:
-            kb.button(text="💣", callback_data="ignore")
+            kb.button(text="💣", callback_data="ignore",
+            style="danger")
         # всё остальное прозрачное
         else:
-            kb.button(text=" ", callback_data="ignore")
+            kb.button(text=" ", callback_data="ignore",
+            style="success")
 
     kb.adjust(5)
     return kb
@@ -949,9 +1120,11 @@ async def miner_click(call: types.CallbackQuery):
             kb.button(text="❓", callback_data=f"s_{i}_{owner}")
 
     if game["clicked"]:
-        kb.button(text="💰 Забрать", callback_data=f"s_cash_{owner}")
+        kb.button(text="💰 Забрать", callback_data=f"s_cash_{owner}",
+        style="success")
     else:
-        kb.button(text="❌", callback_data="ignore")
+        kb.button(text="❌", callback_data="ignore",
+        style="danger")
 
     kb.adjust(5)
 
@@ -967,6 +1140,7 @@ async def miner_click(call: types.CallbackQuery):
 
 
 #--------------- КАРТЫ -----------------
+
 @dp.message(lambda m: m.text and re.fullmatch(r"карты\s+\d+", m.text.lower()))
 async def start_card_game(msg: types.Message):
     add_user(msg.from_user.id)
@@ -993,10 +1167,11 @@ async def start_card_game(msg: types.Message):
     }
 
     kb = InlineKeyboardBuilder()
+
     for i in range(3):
         kb.button(text="🃏", callback_data=f"card_{i}_{uid}")
 
-    kb.button(text="❌", callback_data="ignore")
+    kb.button(text="❌", callback_data="ignore", style="danger")
     kb.adjust(3, 1)
 
     current_win = int(bet * 1.0)
@@ -1014,6 +1189,7 @@ async def start_card_game(msg: types.Message):
 # ===== нажатие =====
 @dp.callback_query(lambda c: c.data.startswith("card_"))
 async def card_click(call: types.CallbackQuery):
+
     parts = call.data.split("_")
     action = parts[1]
     uid = int(parts[2])
@@ -1031,8 +1207,9 @@ async def card_click(call: types.CallbackQuery):
     game["locked"] = True
     await call.answer()
 
-    # ===== ЗАБРАТЬ =====
+# ===== ЗАБРАТЬ =====
     if action == "cash":
+
         if not game["clicked"]:
             game["locked"] = False
             return
@@ -1041,9 +1218,15 @@ async def card_click(call: types.CallbackQuery):
         add_balance(uid, win)
 
         kb = InlineKeyboardBuilder()
+
         for r in game["rows"]:
             for x in r:
-                kb.button(text=x if x == "💀" else " ", callback_data="ignore")
+
+                if x == "💀":
+                    kb.button(text="💀", callback_data="ignore", style="danger")
+                else:
+                    kb.button(text=" ", callback_data="ignore", style="success")
+
         kb.adjust(3)
 
         await call.message.edit_text(
@@ -1056,26 +1239,34 @@ async def card_click(call: types.CallbackQuery):
         del card_games[uid]
         return
 
-    # ===== выбор =====
+# ===== выбор =====
     idx = int(parts[1])
     death = random.randint(0, 2)
     row = []
 
     for i in range(3):
+
         if i == death:
             row.append("💀")
         else:
-            row.append("✅")
+            row.append(" ")
 
     game["rows"].append(row)
     game["clicked"] = True
 
-    # ===== ПРОИГРАЛ =====
+# ===== ПРОИГРАЛ =====
     if idx == death:
+
         kb = InlineKeyboardBuilder()
+
         for r in game["rows"]:
             for x in r:
-                kb.button(text=x if x == "💀" else " ", callback_data="ignore")
+
+                if x == "💀":
+                    kb.button(text="💀", callback_data="ignore", style="danger")
+                else:
+                    kb.button(text=" ", callback_data="ignore", style="success")
+
         kb.adjust(3)
 
         await call.message.edit_text(
@@ -1087,19 +1278,26 @@ async def card_click(call: types.CallbackQuery):
         del card_games[uid]
         return
 
-    # ===== ПРОШЁЛ =====
+# ===== ПРОШЁЛ =====
     game["stage"] += 1
     game["mult"] *= 1.2
 
-    # ===== ПОБЕДА =====
+# ===== ПОБЕДА =====
     if game["stage"] >= 5:
+
         win = int(game["bet"] * game["mult"])
         add_balance(uid, win)
 
         kb = InlineKeyboardBuilder()
+
         for r in game["rows"]:
             for x in r:
-                kb.button(text=x if x == "💀" else " ", callback_data="ignore")
+
+                if x == "💀":
+                    kb.button(text="💀", callback_data="ignore", style="danger")
+                else:
+                    kb.button(text=" ", callback_data="ignore", style="success")
+
         kb.adjust(3)
 
         await call.message.edit_text(
@@ -1112,20 +1310,35 @@ async def card_click(call: types.CallbackQuery):
         del card_games[uid]
         return
 
-    # ===== продолжаем =====
+# ===== продолжаем =====
+
     kb = InlineKeyboardBuilder()
+
     # старые ряды
     for r in game["rows"]:
         for x in r:
-            kb.button(text=x, callback_data="ignore")
+
+            if x == "💀":
+                kb.button(text="💀", callback_data="ignore", style="danger")
+            else:
+                kb.button(text=" ", callback_data="ignore", style="success")
+
     # новый ряд
     for i in range(3):
         kb.button(text="🃏", callback_data=f"card_{i}_{uid}")
 
     if game["clicked"]:
-        kb.button(text="💰 Забрать", callback_data=f"card_cash_{uid}")
+        kb.button(
+            text="💰 Забрать",
+            callback_data=f"card_cash_{uid}",
+            style="success"
+        )
     else:
-        kb.button(text="❌", callback_data="ignore")
+        kb.button(
+            text="❌",
+            callback_data="ignore",
+            style="danger"
+        )
 
     kb.adjust(3, 3, 3, 3, 3, 1)
 
@@ -1150,7 +1363,7 @@ async def show_top(msg: types.Message):
     rows = cur.execute(
         "SELECT user_id, balance FROM users "
         "WHERE user_id NOT IN (?, ?) AND balance > 0 "
-        "ORDER BY balance DESC LIMIT 10",
+        "ORDER BY balance DESC LIMIT 15",
         (OWNER_ID, SUPPORT_ID)
     ).fetchall()
 
@@ -1399,8 +1612,10 @@ async def transfer(msg: types.Message):
 
     kb=InlineKeyboardBuilder()
 
-    kb.button(text="✅ Подтвердить",callback_data=f"pay_yes:{tid}")
-    kb.button(text="❌ Отмена",callback_data=f"pay_no:{tid}")
+    kb.button(text="✅ Подтвердить",callback_data=f"pay_yes:{tid}",
+    style="success")
+    kb.button(text="❌ Отмена",callback_data=f"pay_no:{tid}",
+    style="danger")
 
     kb.adjust(2)
 
@@ -1415,6 +1630,76 @@ async def transfer(msg: types.Message):
         reply_markup=kb.as_markup(),
         parse_mode="HTML"
     )
+ 
+@dp.callback_query(lambda c: c.data and c.data.startswith("pay_yes:"))
+async def transfer_confirm(call: types.CallbackQuery):
+
+    tid = call.data.split(":",1)[1]
+
+    transfer = pending_transfers.get(tid)
+
+    if not transfer:
+        await call.answer("Операция не найдена", show_alert=True)
+        return
+
+    if call.from_user.id != transfer["from"]:
+        await call.answer("Это не твой перевод", show_alert=True)
+        return
+
+    sender = transfer["from"]
+    receiver = transfer["to"]
+    amount = transfer["amount"]
+
+    if get_balance(sender) < amount:
+
+        del pending_transfers[tid]
+
+        await call.message.edit_text(
+            '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Недостаточно средств',
+            parse_mode="HTML"
+        )
+        return
+
+    add_balance(sender,-amount)
+    add_balance(receiver,amount)
+
+    del pending_transfers[tid]
+
+    await call.message.edit_text(
+
+        f'<tg-emoji emoji-id="5332455502917949981">🏦</tg-emoji> Перевод выполнен\n'
+        f'{fmt(amount)} {CURRENCY}',
+
+        parse_mode="HTML"
+    )
+
+    await call.answer()
+   
+@dp.callback_query(lambda c: c.data and c.data.startswith("pay_no:"))
+async def transfer_cancel(call: types.CallbackQuery):
+
+    tid = call.data.split(":",1)[1]
+
+    transfer = pending_transfers.get(tid)
+
+    if not transfer:
+        await call.answer("Операция не найдена", show_alert=True)
+        return
+
+    if call.from_user.id != transfer["from"]:
+        await call.answer("Это не твой перевод", show_alert=True)
+        return
+
+    del pending_transfers[tid]
+
+    await call.message.edit_text(
+
+        '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji> Перевод отменён',
+
+        parse_mode="HTML"
+    )
+
+    await call.answer()
     
 #--------------- ФИКС "алала 7" ------------
 
@@ -1447,7 +1732,7 @@ def parse_bet(text: str):
     return m.group(1), int(m.group(2))
 
 
-@dp.message()
+@dp.message(lambda m: m.text and parse_bet(m.text)[0] is not None)
 async def universal_games(msg: types.Message):
 
     cmd, bet = parse_bet(msg.text)
@@ -1482,7 +1767,7 @@ def main_menu():
 
             [
                 KeyboardButton(text="Баланс"),
-                KeyboardButton(text="Бонус")
+                KeyboardButton(text="Бонус"),
             ],
 
             [
